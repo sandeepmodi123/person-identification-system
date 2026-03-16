@@ -1,4 +1,35 @@
-# Byte-compiled / optimized / DLL files
+# ── .NET ──────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+TestResults/
+*.coverage
+
+# ── Node / Angular ────────────────────────────────────────
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+yarn-error.log*
+
+# ── Uploads & Models ──────────────────────────────────────
+src/PersonIdentificationSystem.API/uploads/
+src/PersonIdentificationSystem.Python/face_recognition_service/models/weights/
+
+# ── Secrets ───────────────────────────────────────────────
+.env
+*.pfx
+*.p12
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Byte-compiled / optimized / DLL files ─────────────────
 __pycache__/
 *.py[codz]
 *$py.class

@@ -1,0 +1,156 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: personid_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-personid_db}
+      POSTGRES_USER: ${POSTGRES_USER:-personid_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/Database/init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-personid_user} -d ${POSTGRES_DB:-personid_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: personid_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeredis}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── RabbitMQ ───────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: personid_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-personid_rabbit}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changerabbit}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── .NET Core API ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./src/PersonIdentificationSystem.API
+      dockerfile: Dockerfile
+    container_name: personid_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__DefaultConnection: "Host=${POSTGRES_HOST:-postgres};Port=${POSTGRES_PORT:-5432};Database=${POSTGRES_DB:-personid_db};Username=${POSTGRES_USER:-personid_user};Password=${POSTGRES_PASSWORD:-changeme}"
+      Redis__ConnectionString: "${REDIS_HOST:-redis}:${REDIS_PORT:-6379},password=${REDIS_PASSWORD:-changeredis}"
+      RabbitMQ__Host: ${RABBITMQ_HOST:-rabbitmq}
+      RabbitMQ__Username: ${RABBITMQ_USER:-personid_rabbit}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-changerabbit}
+      PythonService__BaseUrl: "http://face-recognition:${FACE_RECOGNITION_PORT:-8000}"
+      Email__SmtpHost: ${SMTP_HOST}
+      Email__SmtpPort: ${SMTP_PORT:-587}
+      Email__Username: ${SMTP_USERNAME}
+      Email__Password: ${SMTP_PASSWORD}
+      Email__FromEmail: ${FROM_EMAIL}
+      UploadBasePath: ${UPLOAD_BASE_PATH:-/app/uploads}
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "${API_PORT:-5000}:8080"
+
+  # ── Python Face Recognition Service ───────────────────────────────────────
+  face-recognition:
+    build:
+      context: ./src/PersonIdentificationSystem.Python/face_recognition_service
+      dockerfile: Dockerfile
+    container_name: personid_face_recognition
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeredis}
+      MODEL_NAME: ${FACE_RECOGNITION_MODEL:-arcface}
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.85}
+      MODEL_CACHE_DIR: ${MODEL_CACHE_DIR:-/app/models}
+    volumes:
+      - model_cache:/app/models
+    ports:
+      - "${FACE_RECOGNITION_PORT:-8000}:8000"
+
+  # ── Python Stream Processor ────────────────────────────────────────────────
+  stream-processor:
+    build:
+      context: ./src/PersonIdentificationSystem.Python/stream_processor
+      dockerfile: Dockerfile
+    container_name: personid_stream_processor
+    restart: unless-stopped
+    depends_on:
+      - api
+      - face-recognition
+    environment:
+      DOTNET_API_URL: "http://api:8080"
+      FACE_RECOGNITION_URL: "http://face-recognition:${FACE_RECOGNITION_PORT:-8000}"
+      FRAME_INTERVAL_SECONDS: ${FRAME_INTERVAL_SECONDS:-5}
+      MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-10}
+    ports:
+      - "${STREAM_PROCESSOR_PORT:-8001}:8001"
+
+  # ── Angular Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./src/PersonIdentificationSystem.UI
+      dockerfile: Dockerfile
+      args:
+        API_BASE_URL: ${API_BASE_URL:-http://localhost:5000/api}
+    container_name: personid_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${ANGULAR_PORT:-4200}:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  uploads:
+  model_cache:
+
+networks:
+  default:
+    name: personid_network
