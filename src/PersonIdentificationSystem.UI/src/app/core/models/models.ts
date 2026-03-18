@@ -74,3 +74,15 @@ export interface PagedResult<T> {
   pageSize: number;
   totalPages: number;
 }
+
+export interface DetectionEvent {
+  detectionId: string;
+  streamId: string;
+  cameraName: string;
+  personId: string;
+  personName: string;
+  riskLevel: string;
+  confidenceScore: number;
+  detectionTimestamp: string;
+  notificationSent: boolean;
+}

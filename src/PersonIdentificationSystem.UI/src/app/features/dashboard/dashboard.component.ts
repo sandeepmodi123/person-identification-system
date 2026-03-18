@@ -1,8 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
+import { Subscription } from 'rxjs';
 import { DetectionService } from '../../core/services/detection.service';
 import { StreamService } from '../../core/services/stream.service';
 import { PersonService } from '../../core/services/person.service';
+import { SignalrService } from '../../core/services/signalr.service';
 import { Detection, RTSPStream } from '../../core/models/models';
 
 @Component({
@@ -78,20 +80,46 @@ import { Detection, RTSPStream } from '../../core/models/models';
     .empty-state { color: #999; text-align: center; padding: 40px; }
   `],
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   activeStreams = 0;
   totalPersons = 0;
   todayDetections = 0;
   recentDetections: Detection[] = [];
+  private sub?: Subscription;
 
   constructor(
     private detectionService: DetectionService,
     private streamService: StreamService,
-    private personService: PersonService
+    private personService: PersonService,
+    private signalr: SignalrService
   ) {}
 
   ngOnInit(): void {
     this.loadDashboardData();
+
+    // Real-time updates via SignalR
+    this.sub = this.signalr.detection$.subscribe((event) => {
+      this.todayDetections++;
+      this.recentDetections.unshift({
+        id: event.detectionId,
+        streamId: event.streamId,
+        cameraName: event.cameraName,
+        personId: event.personId,
+        personName: event.personName,
+        riskLevel: event.riskLevel,
+        confidenceScore: event.confidenceScore,
+        detectionTimestamp: event.detectionTimestamp,
+        isVerified: false,
+        emailSent: event.notificationSent,
+      } as Detection);
+      if (this.recentDetections.length > 10) {
+        this.recentDetections.pop();
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.sub?.unsubscribe();
   }
 
   private loadDashboardData(): void {

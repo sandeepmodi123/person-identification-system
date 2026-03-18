@@ -1,14 +1,19 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { RouterModule } from '@angular/router';
+import { Subscription } from 'rxjs';
+import { ToastContainerComponent } from './core/components/toast-container.component';
+import { SignalrService } from './core/services/signalr.service';
+import { ToastService } from './core/services/toast.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterModule],
+  imports: [RouterModule, ToastContainerComponent],
   template: `
     <nav class="navbar">
-      <span class="brand">🚔 Person Identification System</span>
+      <span class="brand">Person Identification System</span>
       <ul class="nav-links">
         <li><a routerLink="/dashboard" routerLinkActive="active">Dashboard</a></li>
+        <li><a routerLink="/monitoring" routerLinkActive="active">Live</a></li>
         <li><a routerLink="/persons" routerLinkActive="active">Persons</a></li>
         <li><a routerLink="/streams" routerLinkActive="active">Streams</a></li>
         <li><a routerLink="/detections" routerLinkActive="active">Detections</a></li>
@@ -18,6 +23,7 @@ import { RouterModule } from '@angular/router';
     <main class="main-content">
       <router-outlet></router-outlet>
     </main>
+    <app-toast-container></app-toast-container>
     <footer class="footer">
       <span>Person Identification System &mdash; POC v1.0</span>
     </footer>
@@ -40,6 +46,31 @@ import { RouterModule } from '@angular/router';
     .footer { background: #1a237e; color: rgba(255,255,255,0.6); text-align: center; padding: 12px; font-size: 12px; }
   `],
 })
-export class AppComponent {
+export class AppComponent implements OnInit, OnDestroy {
   title = 'Person Identification System';
+  private sub?: Subscription;
+
+  constructor(
+    private signalr: SignalrService,
+    private toast: ToastService
+  ) {}
+
+  ngOnInit(): void {
+    this.sub = this.signalr.detection$.subscribe((event) => {
+      const riskType =
+        event.riskLevel === 'Critical' || event.riskLevel === 'High'
+          ? 'error'
+          : 'warning';
+      this.toast.show(
+        riskType,
+        `Match: ${event.personName}`,
+        `${event.cameraName} | Confidence: ${(event.confidenceScore * 100).toFixed(1)}% | Risk: ${event.riskLevel}`,
+        10000
+      );
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.sub?.unsubscribe();
+  }
 }

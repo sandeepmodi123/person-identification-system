@@ -30,6 +30,18 @@ public record ProcessFrameResult(
     bool NotificationSent
 );
 
+public record DetectionEventDto(
+    Guid DetectionId,
+    Guid StreamId,
+    string CameraName,
+    Guid PersonId,
+    string PersonName,
+    string RiskLevel,
+    decimal ConfidenceScore,
+    DateTime DetectionTimestamp,
+    bool NotificationSent
+);
+
 public record VerifyDetectionRequest(
     string Status,  // TruePositive | FalsePositive
     string? Notes

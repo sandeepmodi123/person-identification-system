@@ -1,4 +1,5 @@
 using PersonIdentificationSystem.API.Configuration;
+using PersonIdentificationSystem.API.Hubs;
 using PersonIdentificationSystem.API.Middleware;
 using Serilog;
 
@@ -14,6 +15,7 @@ builder.Services.AddSwaggerConfiguration();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -43,6 +45,7 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
+app.MapHub<DetectionHub>("/hubs/detections");
 // ── Apply Pending Migrations on Startup ───────────────────────────────────
 await app.ApplyMigrationsAsync();
 

@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from frame_extractor import FrameExtractor
 from face_detector import FaceDetector
 from exceptions import StreamConnectionError
+from mjpeg_server import start_mjpeg_server
 
 # Load environment variables
 load_dotenv()
@@ -94,7 +95,7 @@ class StreamProcessor:
         """Process a single RTSP stream: extract frames, detect faces, dispatch to API."""
         logger.info(f"Starting stream processing: {stream_id} ({camera_location}) - {rtsp_url}")
 
-        extractor = FrameExtractor(rtsp_url, FRAME_INTERVAL)
+        extractor = FrameExtractor(rtsp_url, FRAME_INTERVAL, stream_id=stream_id)
         detector = FaceDetector()
 
         try:
@@ -198,6 +199,9 @@ class StreamProcessor:
         logger.info(f"Max Workers: {MAX_WORKERS}")
         logger.info("=" * 60)
         
+        # Start MJPEG server for live stream viewing
+        asyncio.create_task(start_mjpeg_server())
+
         # Connect to RabbitMQ
         rabbitmq_ready = await self.connect_rabbitmq()
         if not rabbitmq_ready:

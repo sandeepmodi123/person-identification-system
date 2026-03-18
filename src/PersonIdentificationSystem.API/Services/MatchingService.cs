@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.SignalR;
 using PersonIdentificationSystem.API.DTOs;
+using PersonIdentificationSystem.API.Hubs;
 using PersonIdentificationSystem.API.Infrastructure;
 using PersonIdentificationSystem.API.Models.Entities;
 using PersonIdentificationSystem.API.Repositories;
@@ -17,6 +19,7 @@ public class MatchingService : IMatchingService
     private readonly IDetectionService _detectionService;
     private readonly INotificationService _notificationService;
     private readonly IStreamRepository _streamRepo;
+    private readonly IHubContext<DetectionHub> _hubContext;
     private readonly IConfiguration _config;
     private readonly ILogger<MatchingService> _logger;
 
@@ -26,6 +29,7 @@ public class MatchingService : IMatchingService
         IDetectionService detectionService,
         INotificationService notificationService,
         IStreamRepository streamRepo,
+        IHubContext<DetectionHub> hubContext,
         IConfiguration config,
         ILogger<MatchingService> logger)
     {
@@ -34,6 +38,7 @@ public class MatchingService : IMatchingService
         _detectionService = detectionService;
         _notificationService = notificationService;
         _streamRepo = streamRepo;
+        _hubContext = hubContext;
         _config = config;
         _logger = logger;
     }
@@ -78,6 +83,33 @@ public class MatchingService : IMatchingService
             _logger.LogError(ex, "Failed to send notification for detection {DetectionId}", detection.Id);
         }
 
+        // 5. Broadcast real-time event via SignalR
+        await BroadcastDetectionAsync(detection, person, request.StreamId, matchResult.Confidence, notified, ct);
+
         return new ProcessFrameResult(true, detection.Id, person.Id, person.Name, matchResult.Confidence, notified);
+    }
+
+    private async Task BroadcastDetectionAsync(Detection detection, Person person, Guid streamId, decimal confidence, bool notified, CancellationToken ct)
+    {
+        try
+        {
+            var stream = await _streamRepo.GetByIdAsync(streamId, ct);
+            var detectionEvent = new DetectionEventDto(
+                detection.Id,
+                streamId,
+                stream?.CameraName ?? "Unknown",
+                person.Id,
+                person.Name,
+                person.RiskLevel,
+                confidence,
+                detection.DetectionTimestamp,
+                notified
+            );
+            await _hubContext.Clients.All.SendAsync("DetectionReceived", detectionEvent, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to broadcast SignalR detection event");
+        }
     }
 }

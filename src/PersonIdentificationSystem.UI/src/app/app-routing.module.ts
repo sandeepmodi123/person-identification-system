@@ -34,6 +34,13 @@ const routes: Routes = [
         (m) => m.NotificationsModule
       ),
   },
+  {
+    path: 'monitoring',
+    loadChildren: () =>
+      import('./features/live-monitoring/live-monitoring.module').then(
+        (m) => m.LiveMonitoringModule
+      ),
+  },
   { path: '**', redirectTo: 'dashboard' },
 ];
 

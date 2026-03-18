@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Tuple
 
 from exceptions import StreamConnectionError
 from logger import get_logger
+import mjpeg_server
 
 logger = get_logger(__name__)
 
@@ -14,9 +15,10 @@ logger = get_logger(__name__)
 class FrameExtractor:
     """Connects to an RTSP stream and yields base64-encoded frames."""
 
-    def __init__(self, rtsp_url: str, interval_seconds: int = 5):
+    def __init__(self, rtsp_url: str, interval_seconds: int = 5, stream_id: str = ""):
         self.rtsp_url = rtsp_url
         self.interval_seconds = interval_seconds
+        self.stream_id = stream_id
         self._cap = None
 
     def _open(self):
@@ -33,6 +35,8 @@ class FrameExtractor:
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+        if self.stream_id:
+            mjpeg_server.remove_stream(self.stream_id)
 
     async def extract_frames(self) -> AsyncGenerator[Tuple[str, str], None]:
         """
@@ -52,6 +56,10 @@ class FrameExtractor:
                     self.release()
                     self._open()
                     continue
+
+                # Publish raw frame to MJPEG server for live viewing
+                if self.stream_id:
+                    await mjpeg_server.set_frame(self.stream_id, frame)
 
                 # Encode frame as JPEG, then base64
                 _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])

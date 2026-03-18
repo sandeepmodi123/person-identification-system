@@ -82,7 +82,7 @@ class StreamManager:
 
     async def _process_stream(self, stream_id: str, rtsp_url: str, interval_seconds: int) -> None:
         """Process a single RTSP stream: extract frames and detect faces."""
-        extractor = FrameExtractor(rtsp_url, interval_seconds)
+        extractor = FrameExtractor(rtsp_url, interval_seconds, stream_id=stream_id)
         detector = FaceDetector()
 
         try:
