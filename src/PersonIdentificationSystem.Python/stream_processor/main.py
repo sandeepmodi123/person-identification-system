@@ -109,14 +109,15 @@ class StreamProcessor:
 
             async for frame_b64, captured_at in extractor.extract_frames():
                 try:
+                    # Quick pre-check with Haar Cascade to avoid sending frames with no faces
                     faces = detector.detect(frame_b64)
                     if not faces:
                         continue
 
                     logger.info(f"Detected {len(faces)} face(s) in stream {stream_id}")
 
-                    for face_b64 in faces:
-                        await self._dispatch_face(stream_id, face_b64, captured_at)
+                    # Send the FULL frame (not crops) to the API - let InsightFace handle detection
+                    await self._dispatch_face(stream_id, frame_b64, captured_at)
 
                 except Exception as e:
                     logger.error(f"Frame processing error for stream {stream_id}: {e}")

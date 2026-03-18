@@ -23,7 +23,8 @@ class ModelLoader:
                 root=settings.model_cache_dir,
                 providers=["CPUExecutionProvider"],
             )
-            model.prepare(ctx_id=0, det_size=(640, 640))
+            # Use lower det_thresh for more permissive face detection
+            model.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.3)
             cls._model = model
             cls._loaded = True
             logger.info("InsightFace model '%s' loaded.", settings.model_name)

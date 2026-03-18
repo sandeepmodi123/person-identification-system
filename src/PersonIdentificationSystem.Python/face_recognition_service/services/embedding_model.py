@@ -44,7 +44,9 @@ class EmbeddingModel:
             if img is None:
                 raise ValueError("Could not decode image bytes.")
 
+            logger.info("Processing image: %dx%d", img.shape[1], img.shape[0])
             faces = model.get(img)
+            logger.info("Detected %d face(s)", len(faces) if faces else 0)
             if not faces:
                 raise ValueError("No face detected in image.")
 

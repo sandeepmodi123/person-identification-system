@@ -118,8 +118,11 @@ public class PersonService : IPersonService
         var fileName = $"{Guid.NewGuid()}{ext}";
         var filePath = Path.Combine(uploadPath, fileName);
 
-        await using var stream = new FileStream(filePath, FileMode.Create);
-        await photo.CopyToAsync(stream, ct);
+        // Wrap in block to close stream before reading for registration
+        {
+            await using var stream = new FileStream(filePath, FileMode.Create);
+            await photo.CopyToAsync(stream, ct);
+        }
 
         var photoEntity = new PersonPhoto
         {

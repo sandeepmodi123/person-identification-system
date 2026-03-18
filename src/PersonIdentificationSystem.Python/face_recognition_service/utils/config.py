@@ -1,4 +1,5 @@
 """Configuration settings for the face recognition service."""
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -12,8 +13,8 @@ class Settings(BaseSettings):
     redis_password: str = ""
 
     # Model
-    model_name: str = "arcface"
-    model_cache_dir: str = "/app/models"
+    model_name: str = "buffalo_l"
+    model_cache_dir: str = os.path.join(os.path.expanduser("~"), ".insightface", "models")
     confidence_threshold: float = 0.85
 
     class Config:
