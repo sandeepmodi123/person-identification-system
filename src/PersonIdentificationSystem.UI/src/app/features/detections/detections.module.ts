@@ -5,10 +5,10 @@ import { FormsModule } from '@angular/forms';
 import { DetectionsComponent } from './detections.component';
 
 @NgModule({
-  declarations: [DetectionsComponent],
   imports: [
     CommonModule,
     FormsModule,
+    DetectionsComponent,
     RouterModule.forChild([{ path: '', component: DetectionsComponent }]),
   ],
 })

@@ -1,9 +1,12 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { DetectionService } from '../../core/services/detection.service';
 import { Detection } from '../../core/models/models';
 
 @Component({
   selector: 'app-detections',
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="page">
       <h1>Detection Events</h1>

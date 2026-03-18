@@ -5,10 +5,10 @@ import { FormsModule } from '@angular/forms';
 import { NotificationsComponent } from './notifications.component';
 
 @NgModule({
-  declarations: [NotificationsComponent],
   imports: [
     CommonModule,
     FormsModule,
+    NotificationsComponent,
     RouterModule.forChild([{ path: '', component: NotificationsComponent }]),
   ],
 })

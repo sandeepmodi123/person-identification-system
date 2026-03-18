@@ -1,9 +1,12 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { NotificationService } from '../../core/services/notification.service';
 import { NotificationSettings, NotificationLog } from '../../core/models/models';
 
 @Component({
   selector: 'app-notifications',
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="page">
       <h1>Notification Settings</h1>

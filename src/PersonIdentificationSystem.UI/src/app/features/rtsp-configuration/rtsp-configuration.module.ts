@@ -5,10 +5,10 @@ import { FormsModule } from '@angular/forms';
 import { RtspConfigComponent } from './rtsp-config.component';
 
 @NgModule({
-  declarations: [RtspConfigComponent],
   imports: [
     CommonModule,
     FormsModule,
+    RtspConfigComponent,
     RouterModule.forChild([{ path: '', component: RtspConfigComponent }]),
   ],
 })

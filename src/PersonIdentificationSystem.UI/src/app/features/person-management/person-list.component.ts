@@ -1,9 +1,12 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { PersonService } from '../../core/services/person.service';
 import { Person } from '../../core/models/models';
 
 @Component({
   selector: 'app-person-list',
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="page">
       <div class="page-header">
@@ -115,7 +118,7 @@ export class PersonListComponent implements OnInit {
   totalPages = 1;
   searchTerm = '';
   showAddForm = false;
-  newPerson = { name: '', description: '', riskLevel: 'Medium' };
+  newPerson: { name: string; description: string; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' } = { name: '', description: '', riskLevel: 'Medium' };
 
   constructor(private personService: PersonService) {}
 

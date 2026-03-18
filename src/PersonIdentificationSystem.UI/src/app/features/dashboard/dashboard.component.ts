@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule, DatePipe } from '@angular/common';
 import { DetectionService } from '../../core/services/detection.service';
 import { StreamService } from '../../core/services/stream.service';
 import { PersonService } from '../../core/services/person.service';
@@ -6,6 +7,7 @@ import { Detection, RTSPStream } from '../../core/models/models';
 
 @Component({
   selector: 'app-dashboard',
+  imports: [CommonModule],
   template: `
     <div class="dashboard">
       <h1>Dashboard</h1>

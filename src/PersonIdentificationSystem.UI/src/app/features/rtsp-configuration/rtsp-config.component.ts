@@ -1,9 +1,12 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { StreamService } from '../../core/services/stream.service';
 import { RTSPStream } from '../../core/models/models';
 
 @Component({
   selector: 'app-rtsp-config',
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="page">
       <div class="page-header">

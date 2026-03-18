@@ -5,11 +5,11 @@ import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { PersonListComponent } from './person-list.component';
 
 @NgModule({
-  declarations: [PersonListComponent],
   imports: [
     CommonModule,
     FormsModule,
     ReactiveFormsModule,
+    PersonListComponent,
     RouterModule.forChild([{ path: '', component: PersonListComponent }]),
   ],
 })
