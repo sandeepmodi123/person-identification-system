@@ -1,4 +1,5 @@
 using PersonIdentificationSystem.API.DTOs;
+using PersonIdentificationSystem.API.Infrastructure;
 using PersonIdentificationSystem.API.Models.Entities;
 using PersonIdentificationSystem.API.Repositories;
 
@@ -20,6 +21,7 @@ public class PersonService : IPersonService
 {
     private readonly IPersonRepository _personRepo;
     private readonly IRepository<PersonPhoto> _photoRepo;
+    private readonly IPythonFaceRecognitionClient _pythonClient;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<PersonService> _logger;
     private readonly IConfiguration _config;
@@ -30,12 +32,14 @@ public class PersonService : IPersonService
     public PersonService(
         IPersonRepository personRepo,
         IRepository<PersonPhoto> photoRepo,
+        IPythonFaceRecognitionClient pythonClient,
         IWebHostEnvironment env,
         ILogger<PersonService> logger,
         IConfiguration config)
     {
         _personRepo = personRepo;
         _photoRepo = photoRepo;
+        _pythonClient = pythonClient;
         _env = env;
         _logger = logger;
         _config = config;
@@ -128,6 +132,21 @@ public class PersonService : IPersonService
 
         await _photoRepo.AddAsync(photoEntity, ct);
         _logger.LogInformation("Added photo {PhotoId} to person {PersonId}", photoEntity.Id, personId);
+
+        // Register face embedding with the Python face recognition service
+        try
+        {
+            var photoBytes = await File.ReadAllBytesAsync(filePath, ct);
+            var imageBase64 = Convert.ToBase64String(photoBytes);
+            var registered = await _pythonClient.RegisterFaceAsync(personId, person.Name, imageBase64, ct);
+            if (!registered)
+                _logger.LogWarning("Failed to register face embedding for person {PersonId}", personId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registering face embedding for person {PersonId}", personId);
+        }
+
         return MapPhotoToDto(photoEntity);
     }
 

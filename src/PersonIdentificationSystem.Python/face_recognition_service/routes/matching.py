@@ -26,6 +26,49 @@ class MatchResponse(BaseModel):
     confidence: float = 0.0
 
 
+class RegisterRequest(BaseModel):
+    person_id: str
+    person_name: str
+    image_base64: str
+
+
+class RegisterResponse(BaseModel):
+    success: bool
+    person_id: str
+    message: str
+
+
+@router.post("/register", response_model=RegisterResponse)
+async def register_face(request: RegisterRequest) -> RegisterResponse:
+    """
+    Accept a base64-encoded face image, generate its embedding, and store
+    it in the Redis cache for future matching.
+    """
+    try:
+        image_bytes = base64.b64decode(request.image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data.")
+
+    try:
+        embedding = EmbeddingModel.generate(image_bytes)
+    except Exception as e:
+        logger.error("Embedding generation failed for person %s: %s", request.person_id, e)
+        raise HTTPException(status_code=422, detail="Failed to extract face embedding from image.")
+
+    await CacheService.store_embedding(
+        request.person_id,
+        request.person_name,
+        embedding.tolist(),
+    )
+
+    logger.info("Registered face embedding for person %s (%s)", request.person_id, request.person_name)
+    return RegisterResponse(
+        success=True,
+        person_id=request.person_id,
+        message=f"Face embedding registered for {request.person_name}.",
+    )
+
+
 @router.post("/match", response_model=MatchResponse)
 async def match_face(request: MatchRequest) -> MatchResponse:
     """

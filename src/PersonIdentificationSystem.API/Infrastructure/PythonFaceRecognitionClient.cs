@@ -14,6 +14,7 @@ public record FaceMatchResult(
 public interface IPythonFaceRecognitionClient
 {
     Task<FaceMatchResult?> MatchFaceAsync(string imageBase64, CancellationToken ct = default);
+    Task<bool> RegisterFaceAsync(Guid personId, string personName, string imageBase64, CancellationToken ct = default);
     Task<bool> IsHealthyAsync(CancellationToken ct = default);
 }
 
@@ -55,6 +56,34 @@ public class PythonFaceRecognitionClient : IPythonFaceRecognitionClient
         {
             _logger.LogError(ex, "Error calling Python face recognition service");
             return null;
+        }
+    }
+
+    public async Task<bool> RegisterFaceAsync(Guid personId, string personName, string imageBase64, CancellationToken ct = default)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            person_id = personId.ToString(),
+            person_name = personName,
+            image_base64 = imageBase64
+        });
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        try
+        {
+            var response = await _http.PostAsync("/api/register", content, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Python service register returned {StatusCode}", response.StatusCode);
+                return false;
+            }
+            _logger.LogInformation("Registered face embedding for person {PersonId} ({PersonName})", personId, personName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registering face for person {PersonId}", personId);
+            return false;
         }
     }
 

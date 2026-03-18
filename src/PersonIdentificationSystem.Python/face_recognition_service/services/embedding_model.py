@@ -29,6 +29,13 @@ class EmbeddingModel:
         """
         model = ModelLoader.get_model()
 
+        if model is None:
+            # Stub mode: return random normalized vector for testing
+            logger.warning("InsightFace not available - using random embedding (test mode).")
+            vec = np.random.randn(512).astype(np.float32)
+            vec /= np.linalg.norm(vec)
+            return vec
+
         try:
             import cv2
             nparr = np.frombuffer(image_bytes, np.uint8)
@@ -37,7 +44,6 @@ class EmbeddingModel:
             if img is None:
                 raise ValueError("Could not decode image bytes.")
 
-            # Use InsightFace if available, else fallback to OpenCV stub
             faces = model.get(img)
             if not faces:
                 raise ValueError("No face detected in image.")
@@ -47,8 +53,7 @@ class EmbeddingModel:
             return embedding.astype(np.float32)
 
         except ImportError:
-            # Fallback: return random normalized vector for testing
-            logger.warning("InsightFace not available - using random embedding (test mode).")
+            logger.warning("OpenCV not available - using random embedding (test mode).")
             vec = np.random.randn(512).astype(np.float32)
             vec /= np.linalg.norm(vec)
             return vec

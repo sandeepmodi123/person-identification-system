@@ -1,9 +1,9 @@
-fastapi==0.110.0
-uvicorn[standard]==0.28.0
-pydantic==2.6.4
-pydantic-settings==2.2.1
-redis==5.0.3
-numpy==1.26.4
-opencv-python-headless==4.9.0.80
-# insightface==0.7.3   # Uncomment for production (requires onnxruntime)
-# onnxruntime==1.17.1  # Uncomment for production
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.34.0,<1.0.0
+pydantic>=2.11.0,<3.0.0
+pydantic-settings>=2.8.0,<3.0.0
+python-dotenv>=1.0.0,<2.0.0
+redis>=5.2.0,<6.0.0
+numpy>=2.2.0,<3.0.0
+httpx>=0.28.0,<1.0.0
+python-multipart>=0.0.20,<1.0.0

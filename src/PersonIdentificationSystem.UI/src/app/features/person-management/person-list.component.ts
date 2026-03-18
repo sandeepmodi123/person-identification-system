@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import { PersonService } from '../../core/services/person.service';
 import { Person } from '../../core/models/models';
 
@@ -34,9 +35,14 @@ import { Person } from '../../core/models/models';
             <option value="Critical">Critical</option>
           </select>
         </div>
+        <div class="form-row">
+          <label>Photos</label>
+          <input type="file" accept="image/*" multiple (change)="onPhotosSelected($event)" />
+          <small *ngIf="selectedPhotos.length > 0">{{ selectedPhotos.length }} photo(s) selected</small>
+        </div>
         <div class="form-actions">
-          <button class="btn-primary" (click)="savePerson()">Save</button>
-          <button class="btn-secondary" (click)="showAddForm = false">Cancel</button>
+          <button class="btn-primary" [disabled]="!newPerson.name.trim() || isSaving" (click)="savePerson()">{{ isSaving ? 'Saving...' : 'Save' }}</button>
+          <button class="btn-secondary" [disabled]="isSaving" (click)="cancelAddPerson()">Cancel</button>
         </div>
       </div>
 
@@ -118,6 +124,8 @@ export class PersonListComponent implements OnInit {
   totalPages = 1;
   searchTerm = '';
   showAddForm = false;
+  isSaving = false;
+  selectedPhotos: File[] = [];
   newPerson: { name: string; description: string; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' } = { name: '', description: '', riskLevel: 'Medium' };
 
   constructor(private personService: PersonService) {}
@@ -138,12 +146,48 @@ export class PersonListComponent implements OnInit {
     this.loadPersons();
   }
 
+  onPhotosSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.selectedPhotos = input.files ? Array.from(input.files) : [];
+  }
+
   savePerson(): void {
-    this.personService.createPerson(this.newPerson).subscribe(() => {
-      this.showAddForm = false;
-      this.newPerson = { name: '', description: '', riskLevel: 'Medium' };
-      this.loadPersons();
+    if (!this.newPerson.name.trim()) {
+      return;
+    }
+
+    this.isSaving = true;
+    this.personService.createPerson(this.newPerson).subscribe((createdPerson) => {
+      const uploads = this.selectedPhotos.map((photo, index) => this.personService.uploadPhoto(createdPerson.id, photo, index === 0));
+      if (uploads.length === 0) {
+        this.finishSave();
+        return;
+      }
+
+      forkJoin(uploads).subscribe({
+        next: () => this.finishSave(),
+        error: () => {
+          this.finishSave();
+          alert('Person was added, but one or more photo uploads failed. Please upload again from the API or retry later.');
+        }
+      });
+    }, () => {
+      this.isSaving = false;
     });
+  }
+
+  cancelAddPerson(): void {
+    this.showAddForm = false;
+    this.newPerson = { name: '', description: '', riskLevel: 'Medium' };
+    this.selectedPhotos = [];
+  }
+
+  private finishSave(): void {
+    this.isSaving = false;
+    this.showAddForm = false;
+    this.newPerson = { name: '', description: '', riskLevel: 'Medium' };
+    this.selectedPhotos = [];
+    this.loadPersons();
   }
 
   toggleActive(person: Person): void {
