@@ -41,34 +41,40 @@ class FrameExtractor:
     async def extract_frames(self) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Asynchronously yield (frame_base64, iso_timestamp) tuples at the
-        configured interval.
+        configured interval. Reads frames continuously (~10fps) for smooth
+        MJPEG streaming, but only yields for face detection at the configured
+        interval.
         """
         self._open()
 
         try:
             import cv2
+            last_yield = 0.0
+            read_interval = 0.1  # ~10fps for MJPEG smoothness
+
             while True:
                 ret, frame = self._cap.read()
                 if not ret:
                     logger.warning("Stream %s returned no frame; retrying in 5s.", self.rtsp_url)
                     await asyncio.sleep(5)
-                    # Try to reconnect
                     self.release()
                     self._open()
                     continue
 
-                # Publish raw frame to MJPEG server for live viewing
+                # Always publish to MJPEG server for smooth live viewing
                 if self.stream_id:
                     await mjpeg_server.set_frame(self.stream_id, frame)
 
-                # Encode frame as JPEG, then base64
-                _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                frame_b64 = base64.b64encode(buffer.tobytes()).decode("utf-8")
-                captured_at = datetime.now(timezone.utc).isoformat()
+                # Only yield for face detection at the configured interval
+                now = time.monotonic()
+                if now - last_yield >= self.interval_seconds:
+                    last_yield = now
+                    _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    frame_b64 = base64.b64encode(buffer.tobytes()).decode("utf-8")
+                    captured_at = datetime.now(timezone.utc).isoformat()
+                    yield frame_b64, captured_at
 
-                yield frame_b64, captured_at
-
-                await asyncio.sleep(self.interval_seconds)
+                await asyncio.sleep(read_interval)
 
         except Exception as e:
             raise StreamConnectionError(f"Stream error: {e}") from e
