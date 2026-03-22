@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Model
     model_name: str = "buffalo_l"
     model_cache_dir: str = os.path.join(os.path.expanduser("~"), ".insightface", "models")
-    confidence_threshold: float = 0.60
+    confidence_threshold: float = 0.10
 
     class Config:
         env_file = ".env"
