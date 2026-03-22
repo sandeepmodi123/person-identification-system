@@ -1,7 +1,10 @@
 """Face matching API route."""
 import base64
+import os
+from pathlib import Path
 from typing import Optional
 
+import httpx
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -13,6 +16,13 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+DOTNET_API_URL = os.getenv("DOTNET_API_URL", "https://localhost:5001/api")
+# Base path where the .NET API stores uploaded photos
+DOTNET_UPLOAD_BASE = os.getenv(
+    "DOTNET_UPLOAD_BASE",
+    str(Path(__file__).resolve().parents[3] / "PersonIdentificationSystem.API" / "uploads"),
+)
 
 
 class MatchRequest(BaseModel):
@@ -112,4 +122,79 @@ async def match_face(request: MatchRequest) -> MatchResponse:
         person_id=match.person_id,
         person_name=match.person_name,
         confidence=match.confidence,
+    )
+
+
+class SyncResponse(BaseModel):
+    synced: int
+    failed: int
+    message: str
+
+
+@router.post("/sync-embeddings", response_model=SyncResponse)
+async def sync_embeddings() -> SyncResponse:
+    """
+    Re-register all person photos from the .NET API.
+    Fetches the person list, reads each photo from the shared upload
+    directory on disk, generates embeddings, and stores them in Redis.
+    """
+    synced = 0
+    failed = 0
+
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=60) as client:
+            resp = await client.get(
+                f"{DOTNET_API_URL.rstrip('/')}/Person",
+                params={"page": 1, "pageSize": 1000},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            persons = data.get("items", [])
+
+            for person in persons:
+                person_id = person.get("id")
+                person_name = person.get("name", "Unknown")
+                photos = person.get("photos", [])
+
+                if not photos:
+                    continue
+
+                for photo in photos:
+                    photo_url = photo.get("photoUrl", "")
+                    if not photo_url:
+                        continue
+
+                    try:
+                        # photoUrl looks like "/uploads/persons/{id}/{file}"
+                        # Strip the leading "/uploads/" to get the relative path
+                        relative = photo_url.lstrip("/")
+                        if relative.startswith("uploads/"):
+                            relative = relative[len("uploads/"):]
+                        file_path = Path(DOTNET_UPLOAD_BASE) / relative
+
+                        if not file_path.is_file():
+                            logger.warning("Photo file not found: %s", file_path)
+                            failed += 1
+                            continue
+
+                        image_bytes = file_path.read_bytes()
+                        embedding = EmbeddingModel.generate(image_bytes)
+
+                        await CacheService.store_embedding(
+                            person_id, person_name, embedding.tolist()
+                        )
+                        logger.info("Synced embedding for %s (%s)", person_name, person_id)
+                        synced += 1
+                    except Exception as e:
+                        logger.error("Failed to sync photo for %s: %s", person_name, e)
+                        failed += 1
+
+    except Exception as e:
+        logger.error("Sync failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+
+    return SyncResponse(
+        synced=synced,
+        failed=failed,
+        message=f"Synced {synced} embeddings, {failed} failures.",
     )

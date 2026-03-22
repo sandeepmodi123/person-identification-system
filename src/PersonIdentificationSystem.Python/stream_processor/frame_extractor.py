@@ -1,6 +1,7 @@
 """Frame extractor - reads frames from RTSP stream at configurable intervals."""
 import asyncio
 import base64
+import os
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Tuple
@@ -24,7 +25,8 @@ class FrameExtractor:
     def _open(self):
         try:
             import cv2
-            cap = cv2.VideoCapture(self.rtsp_url)
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
             if not cap.isOpened():
                 raise StreamConnectionError(f"Cannot open RTSP stream: {self.rtsp_url}")
             self._cap = cap
@@ -49,11 +51,14 @@ class FrameExtractor:
 
         try:
             import cv2
+            loop = asyncio.get_event_loop()
             last_yield = 0.0
             read_interval = 0.1  # ~10fps for MJPEG smoothness
 
             while True:
-                ret, frame = self._cap.read()
+                # Run blocking read in a thread so the event loop stays free
+                # for the MJPEG server to serve frames
+                ret, frame = await loop.run_in_executor(None, self._cap.read)
                 if not ret:
                     logger.warning("Stream %s returned no frame; retrying in 5s.", self.rtsp_url)
                     await asyncio.sleep(5)

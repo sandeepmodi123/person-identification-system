@@ -53,10 +53,11 @@ class FaceMatcher:
                 best_entry = entry
 
         if best_entry is None or best_score < settings.confidence_threshold:
-            logger.debug(
-                "No match above threshold %.3f (best=%.4f)",
+            logger.info(
+                "No match above threshold %.3f (best=%.4f, candidate=%s)",
                 settings.confidence_threshold,
                 best_score,
+                best_entry.person_name if best_entry else "none",
             )
             return None
 
