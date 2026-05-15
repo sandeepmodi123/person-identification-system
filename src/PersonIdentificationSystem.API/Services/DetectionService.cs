@@ -10,6 +10,8 @@ public interface IDetectionService
     Task<DetectionDto?> GetDetectionAsync(Guid id, CancellationToken ct = default);
     Task<DetectionDto?> VerifyDetectionAsync(Guid id, VerifyDetectionRequest request, string verifiedBy, CancellationToken ct = default);
     Task<Detection> CreateDetectionAsync(Guid streamId, Guid? personId, decimal confidence, string? frameImageUrl, string? rawData, CancellationToken ct = default);
+    Task<bool> DeleteDetectionAsync(Guid id, CancellationToken ct = default);
+    Task<int> DeleteAllExceptTodayAsync(CancellationToken ct = default);
 }
 
 public class DetectionService : IDetectionService
@@ -26,12 +28,38 @@ public class DetectionService : IDetectionService
     public async Task<PagedResult<DetectionDto>> GetDetectionsAsync(
         DetectionFilterRequest filter, CancellationToken ct = default)
     {
-        filter = filter with { Page = Math.Max(1, filter.Page), PageSize = Math.Clamp(filter.PageSize, 1, 100) };
+        // Normalize MinConfidence: callers may pass 90 (percent) or 0.9 (ratio).
+        // ConfidenceScore is persisted on a 0..1 scale, so anything > 1 is treated
+        // as a percentage and divided by 100. Final value is clamped to [0, 1].
+        decimal? normalizedMin = filter.MinConfidence;
+        if (normalizedMin is > 1m)
+            normalizedMin = normalizedMin.Value / 100m;
+        if (normalizedMin is < 0m)
+            normalizedMin = 0m;
+        if (normalizedMin is > 1m)
+            normalizedMin = 1m;
+
+        filter = filter with
+        {
+            Page = Math.Max(1, filter.Page),
+            PageSize = Math.Clamp(filter.PageSize, 1, 100),
+            MinConfidence = normalizedMin,
+            FromDate = NormalizeToUtc(filter.FromDate),
+            ToDate = NormalizeToUtc(filter.ToDate),
+        };
         var (items, total) = await _detectionRepo.GetPagedAsync(filter, ct);
         var dtos = items.Select(MapToDto).ToList();
         return new PagedResult<DetectionDto>(dtos, total, filter.Page, filter.PageSize,
             (int)Math.Ceiling((double)total / filter.PageSize));
     }
+
+    private static DateTime? NormalizeToUtc(DateTime? value) => value?.Kind switch
+    {
+        null => null,
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.Value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value!.Value, DateTimeKind.Utc),
+    };
 
     public async Task<DetectionDto?> GetDetectionAsync(Guid id, CancellationToken ct = default)
     {
@@ -72,6 +100,27 @@ public class DetectionService : IDetectionService
         _logger.LogInformation("Created detection {DetectionId} for person {PersonId} with confidence {Confidence:P0}",
             detection.Id, personId, confidence);
         return detection;
+    }
+
+    public async Task<bool> DeleteDetectionAsync(Guid id, CancellationToken ct = default)
+    {
+        var detection = await _detectionRepo.GetByIdAsync(id, ct);
+        if (detection is null) return false;
+
+        await _detectionRepo.DeleteAsync(detection, ct);
+        _logger.LogInformation("Deleted detection {DetectionId}", id);
+        return true;
+    }
+
+    public async Task<int> DeleteAllExceptTodayAsync(CancellationToken ct = default)
+    {
+        // Keep detections from today (UTC); delete everything older.
+        var todayStartUtc = DateTime.UtcNow.Date;
+        var deleted = await _detectionRepo.DeleteOlderThanAsync(todayStartUtc, ct);
+        _logger.LogWarning(
+            "Purged {Count} detections older than {Cutoff:o} (kept today's only).",
+            deleted, todayStartUtc);
+        return deleted;
     }
 
     private static DetectionDto MapToDto(Detection d) => new(

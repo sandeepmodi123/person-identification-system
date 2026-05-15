@@ -8,6 +8,7 @@ public interface IDetectionRepository : IRepository<Detection>
 {
     Task<(List<Detection> Items, int Total)> GetPagedAsync(DetectionFilterRequest filter, CancellationToken ct = default);
     Task<Detection?> GetWithDetailsAsync(Guid id, CancellationToken ct = default);
+    Task<int> DeleteOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default);
 }
 
 public class DetectionRepository : BaseRepository<Detection>, IDetectionRepository
@@ -56,4 +57,9 @@ public class DetectionRepository : BaseRepository<Detection>, IDetectionReposito
             .Include(d => d.Person)
             .ThenInclude(p => p!.Photos)
             .FirstOrDefaultAsync(d => d.Id == id, ct);
+
+    public async Task<int> DeleteOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default)
+        => await _dbSet
+            .Where(d => d.DetectionTimestamp < cutoffUtc)
+            .ExecuteDeleteAsync(ct);
 }

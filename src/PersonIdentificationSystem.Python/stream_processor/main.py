@@ -5,9 +5,29 @@ Processes video streams from RTSP cameras and detects faces
 
 import logging
 import os
+import sys
+
+# Silence ffmpeg/hevc stderr spam BEFORE OpenCV/ffmpeg gets imported anywhere.
+os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
+
+# Redirect raw fd 2 (stderr) to NUL so ffmpeg's libavcodec error spam
+# ("[hevc @ ...] Could not find ref with POC ...") can't reach the console.
+# Python logging keeps working because we install a fresh stderr stream below.
+try:
+    _real_stderr = os.dup(2)
+    _devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(_devnull, 2)
+    os.close(_devnull)
+    # Re-attach Python's sys.stderr to a real terminal handle so our own logs
+    # (which write to stdout via StreamHandler default) remain visible.
+    sys.stderr = os.fdopen(_real_stderr, "w", buffering=1)
+except Exception:
+    pass
+
 import asyncio
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict
 import requests
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -23,11 +43,20 @@ from mjpeg_server import start_mjpeg_server
 # Load environment variables
 load_dotenv()
 
-# Setup logging
+# Setup logging - WARNING for noisy libs, INFO only for our own dispatch lines.
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    stream=sys.stdout,
+    format='%(asctime)s | %(levelname)s | %(message)s'
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("aio_pika").setLevel(logging.WARNING)
+logging.getLogger("aiormq").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+logging.getLogger("frame_extractor").setLevel(logging.ERROR)
+logging.getLogger("mjpeg_server").setLevel(logging.WARNING)
+logging.getLogger("face_detector").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -35,7 +64,10 @@ API_BASE_URL = os.getenv('API_BASE_URL', 'https://localhost:5001/api')
 FACE_SERVICE_URL = os.getenv('FACE_SERVICE_URL', 'http://localhost:8000')
 RABBITMQ_URL = os.getenv('RABBITMQ_URL', 'amqp://admin:RabbitMQPassword123@localhost:5672/')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-FRAME_INTERVAL = int(os.getenv('FRAME_INTERVAL', '5'))
+# Process up to TARGET_FPS frames per second from each stream. Every frame that
+# passes the local face gate (Haar + sharpness) is sent to CompreFace.
+TARGET_FPS = float(os.getenv('TARGET_FPS', '4'))
+FRAME_INTERVAL = float(os.getenv('FRAME_INTERVAL', str(1.0 / max(TARGET_FPS, 0.1))))
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))
 
 
@@ -82,7 +114,7 @@ class StreamProcessor:
             if response.status_code == 200:
                 streams = response.json()
                 active = [s for s in streams if s.get('isActive', False)]
-                logger.info(f"Found {len(active)} active streams")
+                logger.debug(f"Found {len(active)} active streams")
                 return active
             else:
                 logger.error(f"API error: {response.status_code}")
@@ -92,7 +124,13 @@ class StreamProcessor:
             return []
     
     async def process_stream(self, stream_id: str, rtsp_url: str, camera_location: str):
-        """Process a single RTSP stream: extract frames, detect faces, dispatch to API."""
+        """Process a single RTSP stream.
+
+        Reads frames at TARGET_FPS, runs a fast local Haar detection plus a
+        sharpness gate, and dispatches every usable frame's face crop to the
+        .NET API (which forwards to CompreFace). Frames with no face or that
+        are too blurry are skipped - CompreFace is not called for them.
+        """
         logger.info(f"Starting stream processing: {stream_id} ({camera_location}) - {rtsp_url}")
 
         extractor = FrameExtractor(rtsp_url, FRAME_INTERVAL, stream_id=stream_id)
@@ -109,15 +147,15 @@ class StreamProcessor:
 
             async for frame_b64, captured_at in extractor.extract_frames():
                 try:
-                    # Quick pre-check with Haar Cascade to avoid sending frames with no faces
-                    faces = detector.detect(frame_b64)
-                    if not faces:
+                    # Local face gate: skip frames with no face / too blurry.
+                    score = detector.score(frame_b64)
+                    if score is None:
                         continue
 
-                    logger.info(f"Detected {len(faces)} face(s) in stream {stream_id}")
-
-                    # Send the FULL frame (not crops) to the API - let InsightFace handle detection
-                    await self._dispatch_face(stream_id, frame_b64, captured_at)
+                    # Send the upscaled, padded face crop. Only this dispatch is logged.
+                    await self._dispatch_face(
+                        stream_id, score.face_crop_b64, captured_at
+                    )
 
                 except Exception as e:
                     logger.error(f"Frame processing error for stream {stream_id}: {e}")
@@ -145,9 +183,10 @@ class StreamProcessor:
                 result = response.json()
                 if result.get("matchFound"):
                     logger.warning(
-                        f"MATCH FOUND: person={result.get('personName')} "
-                        f"confidence={result.get('confidenceScore', 0):.2f} "
-                        f"stream={stream_id}"
+                        "MATCH: person=%s confidence=%.2f stream=%s",
+                        result.get('personName'),
+                        result.get('confidenceScore', 0),
+                        stream_id,
                     )
     
     async def monitor_streams(self):
@@ -196,7 +235,7 @@ class StreamProcessor:
         logger.info(f"API URL: {self.api_url}")
         logger.info(f"Face Service: {self.face_service_url}")
         logger.info(f"RabbitMQ URL: {self.rabbitmq_url}")
-        logger.info(f"Frame Interval: {FRAME_INTERVAL}s")
+        logger.info(f"Target FPS: {TARGET_FPS} (interval {FRAME_INTERVAL:.3f}s)")
         logger.info(f"Max Workers: {MAX_WORKERS}")
         logger.info("=" * 60)
         

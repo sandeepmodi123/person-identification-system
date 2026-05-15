@@ -133,10 +133,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.totalPersons = result.totalCount;
     });
 
-    // Load today's detections
-    const today = new Date().toISOString().split('T')[0];
+    // Load today's detections (local-day boundary, converted to UTC for the API)
+    const localMidnight = new Date();
+    localMidnight.setHours(0, 0, 0, 0);
+    const fromDate = localMidnight.toISOString();
     this.detectionService
-      .getDetections({ page: 1, pageSize: 10, fromDate: today })
+      .getDetections({ page: 1, pageSize: 10, fromDate })
       .subscribe((result) => {
         this.todayDetections = result.totalCount;
         this.recentDetections = result.items;

@@ -94,7 +94,7 @@ async def start_mjpeg_server() -> None:
     app.router.add_get("/stream/{stream_id}/mjpeg", mjpeg_handler)
     app.router.add_get("/streams", streams_list_handler)
 
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", MJPEG_PORT)
     await site.start()

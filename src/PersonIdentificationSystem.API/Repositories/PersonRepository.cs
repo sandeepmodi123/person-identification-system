@@ -8,6 +8,7 @@ public interface IPersonRepository : IRepository<Person>
     Task<(List<Person> Items, int Total)> GetPagedAsync(
         int page, int pageSize, string? search, string? riskLevel, bool? isActive, CancellationToken ct = default);
     Task<Person?> GetWithPhotosAsync(Guid id, CancellationToken ct = default);
+    Task<Person?> GetByPersonFaceIdAsync(string personFaceId, CancellationToken ct = default);
 }
 
 public class PersonRepository : BaseRepository<Person>, IPersonRepository
@@ -40,4 +41,7 @@ public class PersonRepository : BaseRepository<Person>, IPersonRepository
 
     public async Task<Person?> GetWithPhotosAsync(Guid id, CancellationToken ct = default)
         => await _dbSet.Include(p => p.Photos).FirstOrDefaultAsync(p => p.Id == id, ct);
+
+    public async Task<Person?> GetByPersonFaceIdAsync(string personFaceId, CancellationToken ct = default)
+        => await _dbSet.FirstOrDefaultAsync(p => p.PersonFaceId == personFaceId, ct);
 }

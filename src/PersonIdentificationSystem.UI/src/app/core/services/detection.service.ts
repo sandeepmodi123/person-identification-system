@@ -38,4 +38,12 @@ export class DetectionService {
   verifyDetection(id: string, status: 'TruePositive' | 'FalsePositive', notes?: string): Observable<Detection> {
     return this.api.post<Detection>(`/detections/${id}/verify`, { status, notes });
   }
+
+  deleteDetection(id: string): Observable<void> {
+    return this.api.delete<void>(`/detections/${id}`);
+  }
+
+  purgeOldDetections(): Observable<{ deleted: number; message: string }> {
+    return this.api.delete<{ deleted: number; message: string }>('/detections/purge-old');
+  }
 }

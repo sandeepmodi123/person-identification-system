@@ -12,6 +12,13 @@ public class Person
     public string? CreatedBy { get; set; }
     public string? UpdatedBy { get; set; }
 
+    /// <summary>
+    /// The subject identifier used by CompreFace for this person's face embeddings.
+    /// Populated the first time a photo is registered. Lookups during recognition
+    /// match the value returned by CompreFace's recognize endpoint to this column.
+    /// </summary>
+    public string? PersonFaceId { get; set; }
+
     // Navigation
     public ICollection<PersonPhoto> Photos { get; set; } = new List<PersonPhoto>();
     public ICollection<Detection> Detections { get; set; } = new List<Detection>();

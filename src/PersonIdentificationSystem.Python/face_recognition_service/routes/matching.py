@@ -1,28 +1,17 @@
-"""Face matching API route."""
+"""Face matching API route - backed by CompreFace."""
 import base64
-import os
-from pathlib import Path
 from typing import Optional
 
-import httpx
-import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from models.matcher import FaceMatcher
-from services.cache_service import CacheService
-from services.embedding_model import EmbeddingModel
+from services.compreface_client import CompreFaceClient
+from services.dedup_service import DedupService
+from utils.config import settings
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
-
-DOTNET_API_URL = os.getenv("DOTNET_API_URL", "https://localhost:5001/api")
-# Base path where the .NET API stores uploaded photos
-DOTNET_UPLOAD_BASE = os.getenv(
-    "DOTNET_UPLOAD_BASE",
-    str(Path(__file__).resolve().parents[3] / "PersonIdentificationSystem.API" / "uploads"),
-)
 
 
 class MatchRequest(BaseModel):
@@ -31,170 +20,134 @@ class MatchRequest(BaseModel):
 
 class MatchResponse(BaseModel):
     match_found: bool
-    person_id: Optional[str] = None
-    person_name: Optional[str] = None
+    person_face_id: Optional[str] = None
     confidence: float = 0.0
 
 
 class RegisterRequest(BaseModel):
-    person_id: str
-    person_name: str
+    person_face_id: str
     image_base64: str
 
 
 class RegisterResponse(BaseModel):
     success: bool
-    person_id: str
+    person_face_id: str
     message: str
+
+
+def _decode_image(image_base64: str) -> bytes:
+    try:
+        return base64.b64decode(image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data.")
+
+
+def _face_meets_min_size(box: dict) -> bool:
+    """Return True if the detected face box satisfies the min size threshold."""
+    try:
+        w = int(box.get("x_max", 0)) - int(box.get("x_min", 0))
+        h = int(box.get("y_max", 0)) - int(box.get("y_min", 0))
+        return w >= settings.min_face_size_px and h >= settings.min_face_size_px
+    except Exception:
+        return True  # if box info missing, don't drop the result
 
 
 @router.post("/register", response_model=RegisterResponse)
 async def register_face(request: RegisterRequest) -> RegisterResponse:
-    """
-    Accept a base64-encoded face image, generate its embedding, and store
-    it in the Redis cache for future matching.
-    """
-    try:
-        image_bytes = base64.b64decode(request.image_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 image data.")
+    """Register a photo as a CompreFace example under subject = person_face_id."""
+    image_bytes = _decode_image(request.image_base64)
 
-    try:
-        embedding = EmbeddingModel.generate(image_bytes)
-    except Exception as e:
-        logger.error("Embedding generation failed for person %s: %s", request.person_id, e)
-        raise HTTPException(status_code=422, detail="Failed to extract face embedding from image.")
+    ok = await CompreFaceClient.add_face(request.person_face_id, image_bytes)
+    if not ok:
+        raise HTTPException(
+            status_code=422,
+            detail="CompreFace rejected the image (no face detected or invalid).",
+        )
 
-    await CacheService.store_embedding(
-        request.person_id,
-        request.person_name,
-        embedding.tolist(),
-    )
-
-    logger.info("Registered face embedding for person %s (%s)", request.person_id, request.person_name)
     return RegisterResponse(
         success=True,
-        person_id=request.person_id,
-        message=f"Face embedding registered for {request.person_name}.",
+        person_face_id=request.person_face_id,
+        message="Face registered with CompreFace.",
     )
+
+
+class UnregisterRequest(BaseModel):
+    person_face_id: str
+
+
+@router.post("/unregister")
+async def unregister_face(request: UnregisterRequest) -> dict:
+    """Delete all CompreFace examples for the given subject."""
+    await CompreFaceClient.delete_subject(request.person_face_id)
+    return {"success": True, "person_face_id": request.person_face_id}
+
+
+@router.post("/wipe-all")
+async def wipe_all() -> dict:
+    """Delete every subject in this CompreFace app. Used before a full re-sync."""
+    deleted = await CompreFaceClient.delete_all()
+    return {"success": True, "deleted": deleted}
+
+
+@router.get("/subjects")
+async def list_subjects() -> dict:
+    """List all enrolled subjects in CompreFace. Diagnostic endpoint."""
+    subjects = await CompreFaceClient.list_subjects()
+    return {"count": len(subjects), "subjects": subjects}
 
 
 @router.post("/match", response_model=MatchResponse)
 async def match_face(request: MatchRequest) -> MatchResponse:
-    """
-    Accept a base64-encoded face image, generate embedding, and find the
-    best matching person from the Redis embedding cache.
-    """
-    # Decode image
-    try:
-        image_bytes = base64.b64decode(request.image_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 image data.")
+    """Recognize a face via CompreFace and apply threshold + min size + dedup cooldown."""
+    image_bytes = _decode_image(request.image_base64)
 
-    # Generate embedding
-    try:
-        query_embedding = EmbeddingModel.generate(image_bytes)
-    except Exception as e:
-        logger.error("Embedding generation failed: %s", e)
-        raise HTTPException(status_code=422, detail="Failed to extract face embedding from image.")
-
-    # Load all person embeddings from cache
-    person_embeddings = await CacheService.get_all_embeddings()
-
-    if not person_embeddings:
-        logger.warning("No person embeddings in cache - cannot match.")
+    data = await CompreFaceClient.recognize(image_bytes)
+    results = data.get("result") or []
+    if not results:
+        logger.debug("CompreFace returned no faces in the image.")
         return MatchResponse(match_found=False)
 
-    # Find best match
-    match = FaceMatcher.find_best_match(query_embedding, person_embeddings)
+    # Walk every detected face + every candidate subject, keeping the best similarity.
+    best: Optional[dict] = None
+    best_similarity = -1.0
+    for face in results:
+        box = face.get("box") or {}
+        try:
+            w = int(box.get("x_max", 0)) - int(box.get("x_min", 0))
+            h = int(box.get("y_max", 0)) - int(box.get("y_min", 0))
+        except Exception:
+            w = h = 0
 
-    if match is None:
+        if w < settings.min_face_size_px or h < settings.min_face_size_px:
+            continue
+
+        for subj in (face.get("subjects") or []):
+            similarity = float(subj.get("similarity", 0.0))
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best = subj
+
+    if best is None or best_similarity < settings.confidence_threshold:
+        logger.info(
+            "CompreFace -> no match (best=%.3f, threshold=%.2f)",
+            max(best_similarity, 0.0), settings.confidence_threshold,
+        )
+        return MatchResponse(match_found=False)
+
+    person_face_id = str(best.get("subject", "")).strip()
+    if not person_face_id:
+        return MatchResponse(match_found=False)
+
+    # 30s cooldown so we don't spam the same person
+    if not DedupService.should_emit(person_face_id):
         return MatchResponse(match_found=False)
 
     logger.info(
-        "Match found: person_id=%s confidence=%.4f",
-        match.person_id,
-        match.confidence,
+        "CompreFace -> MATCH face_id=%s confidence=%.3f",
+        person_face_id, best_similarity,
     )
-
     return MatchResponse(
         match_found=True,
-        person_id=match.person_id,
-        person_name=match.person_name,
-        confidence=match.confidence,
-    )
-
-
-class SyncResponse(BaseModel):
-    synced: int
-    failed: int
-    message: str
-
-
-@router.post("/sync-embeddings", response_model=SyncResponse)
-async def sync_embeddings() -> SyncResponse:
-    """
-    Re-register all person photos from the .NET API.
-    Fetches the person list, reads each photo from the shared upload
-    directory on disk, generates embeddings, and stores them in Redis.
-    """
-    synced = 0
-    failed = 0
-
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=60) as client:
-            resp = await client.get(
-                f"{DOTNET_API_URL.rstrip('/')}/Person",
-                params={"page": 1, "pageSize": 1000},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            persons = data.get("items", [])
-
-            for person in persons:
-                person_id = person.get("id")
-                person_name = person.get("name", "Unknown")
-                photos = person.get("photos", [])
-
-                if not photos:
-                    continue
-
-                for photo in photos:
-                    photo_url = photo.get("photoUrl", "")
-                    if not photo_url:
-                        continue
-
-                    try:
-                        # photoUrl looks like "/uploads/persons/{id}/{file}"
-                        # Strip the leading "/uploads/" to get the relative path
-                        relative = photo_url.lstrip("/")
-                        if relative.startswith("uploads/"):
-                            relative = relative[len("uploads/"):]
-                        file_path = Path(DOTNET_UPLOAD_BASE) / relative
-
-                        if not file_path.is_file():
-                            logger.warning("Photo file not found: %s", file_path)
-                            failed += 1
-                            continue
-
-                        image_bytes = file_path.read_bytes()
-                        embedding = EmbeddingModel.generate(image_bytes)
-
-                        await CacheService.store_embedding(
-                            person_id, person_name, embedding.tolist()
-                        )
-                        logger.info("Synced embedding for %s (%s)", person_name, person_id)
-                        synced += 1
-                    except Exception as e:
-                        logger.error("Failed to sync photo for %s: %s", person_name, e)
-                        failed += 1
-
-    except Exception as e:
-        logger.error("Sync failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
-
-    return SyncResponse(
-        synced=synced,
-        failed=failed,
-        message=f"Synced {synced} embeddings, {failed} failures.",
+        person_face_id=person_face_id,
+        confidence=best_similarity,
     )

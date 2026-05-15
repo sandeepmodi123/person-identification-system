@@ -15,6 +15,7 @@ public interface IPersonService
     Task<PersonPhotoDto> AddPhotoAsync(Guid personId, IFormFile photo, bool isPrimary, CancellationToken ct = default);
     Task<List<PersonPhotoDto>> GetPhotosAsync(Guid personId, CancellationToken ct = default);
     Task<bool> DeletePhotoAsync(Guid personId, Guid photoId, CancellationToken ct = default);
+    Task<SyncEmbeddingsResult> SyncEmbeddingsAsync(CancellationToken ct = default);
 }
 
 public class PersonService : IPersonService
@@ -136,18 +137,24 @@ public class PersonService : IPersonService
         await _photoRepo.AddAsync(photoEntity, ct);
         _logger.LogInformation("Added photo {PhotoId} to person {PersonId}", photoEntity.Id, personId);
 
-        // Register face embedding with the Python face recognition service
+        // Register face with CompreFace. Assign a stable PersonFaceId on first photo.
         try
         {
+            if (string.IsNullOrEmpty(person.PersonFaceId))
+            {
+                person.PersonFaceId = Guid.NewGuid().ToString("N");
+                await _personRepo.UpdateAsync(person, ct);
+            }
+
             var photoBytes = await File.ReadAllBytesAsync(filePath, ct);
             var imageBase64 = Convert.ToBase64String(photoBytes);
-            var registered = await _pythonClient.RegisterFaceAsync(personId, person.Name, imageBase64, ct);
+            var registered = await _pythonClient.RegisterFaceAsync(person.PersonFaceId, imageBase64, ct);
             if (!registered)
-                _logger.LogWarning("Failed to register face embedding for person {PersonId}", personId);
+                _logger.LogWarning("CompreFace registration failed for face_id={FaceId}", person.PersonFaceId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error registering face embedding for person {PersonId}", personId);
+            _logger.LogError(ex, "Error registering face for person {PersonId}", personId);
         }
 
         return MapPhotoToDto(photoEntity);
@@ -165,6 +172,65 @@ public class PersonService : IPersonService
         if (photo is null || photo.PersonId != personId) return false;
         await _photoRepo.DeleteAsync(photo, ct);
         return true;
+    }
+
+    public async Task<SyncEmbeddingsResult> SyncEmbeddingsAsync(CancellationToken ct = default)
+    {
+        var (allPersons, _) = await _personRepo.GetPagedAsync(1, 10000, null, null, null, ct);
+        var uploadBase = _config["UploadBasePath"] ?? "uploads";
+        int synced = 0, failed = 0;
+
+        // Wipe CompreFace first so orphaned subjects (e.g. from the old Person.Id
+        // subject scheme) don't pollute matches.
+        await _pythonClient.WipeAllAsync(ct);
+
+        foreach (var person in allPersons)
+        {
+            if (person.Photos.Count == 0) continue;
+
+            // Mint a PersonFaceId if missing.
+            if (string.IsNullOrEmpty(person.PersonFaceId))
+            {
+                person.PersonFaceId = Guid.NewGuid().ToString("N");
+                await _personRepo.UpdateAsync(person, ct);
+            }
+
+            // Reset CompreFace subject so we don't accumulate duplicates.
+            await _pythonClient.UnregisterFaceAsync(person.PersonFaceId, ct);
+
+            foreach (var photo in person.Photos)
+            {
+                try
+                {
+                    var relative = photo.PhotoUrl.TrimStart('/');
+                    if (relative.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase))
+                        relative = relative["uploads/".Length..];
+                    var filePath = Path.Combine(uploadBase, relative);
+
+                    if (!File.Exists(filePath))
+                    {
+                        _logger.LogWarning("Photo file not found: {Path}", filePath);
+                        failed++;
+                        continue;
+                    }
+
+                    var bytes = await File.ReadAllBytesAsync(filePath, ct);
+                    var ok = await _pythonClient.RegisterFaceAsync(
+                        person.PersonFaceId,
+                        Convert.ToBase64String(bytes),
+                        ct);
+                    if (ok) synced++; else failed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Sync failed for person {PersonId}", person.Id);
+                    failed++;
+                }
+            }
+        }
+
+        return new SyncEmbeddingsResult(synced, failed,
+            $"Synced {synced} photo(s) to CompreFace, {failed} failure(s).");
     }
 
     private static PersonDto MapToDto(Person p) => new(

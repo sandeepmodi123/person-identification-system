@@ -51,4 +51,11 @@ export class PersonService {
   deletePhoto(personId: string, photoId: string): Observable<void> {
     return this.api.delete<void>(`/person/${personId}/photos/${photoId}`);
   }
+
+  syncEmbeddings(): Observable<{ synced: number; failed: number; message: string }> {
+    return this.api.post<{ synced: number; failed: number; message: string }>(
+      '/person/sync-embeddings',
+      {}
+    );
+  }
 }

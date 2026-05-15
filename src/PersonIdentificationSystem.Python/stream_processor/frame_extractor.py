@@ -16,9 +16,11 @@ logger = get_logger(__name__)
 class FrameExtractor:
     """Connects to an RTSP stream and yields base64-encoded frames."""
 
-    def __init__(self, rtsp_url: str, interval_seconds: int = 5, stream_id: str = ""):
+    def __init__(self, rtsp_url: str, interval_seconds: float = 0.0, stream_id: str = ""):
         self.rtsp_url = rtsp_url
-        self.interval_seconds = interval_seconds
+        # interval_seconds <= 0 disables throttling. The stream processor picks the
+        # best frame per second itself, so we want every readable frame here.
+        self.interval_seconds = float(interval_seconds)
         self.stream_id = stream_id
         self._cap = None
 
@@ -70,9 +72,10 @@ class FrameExtractor:
                 if self.stream_id:
                     await mjpeg_server.set_frame(self.stream_id, frame)
 
-                # Only yield for face detection at the configured interval
+                # Only yield for face detection at the configured interval.
+                # interval_seconds <= 0 means "yield every frame".
                 now = time.monotonic()
-                if now - last_yield >= self.interval_seconds:
+                if self.interval_seconds <= 0 or (now - last_yield) >= self.interval_seconds:
                     last_yield = now
                     _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     frame_b64 = base64.b64encode(buffer.tobytes()).decode("utf-8")

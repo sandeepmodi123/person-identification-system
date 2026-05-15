@@ -68,8 +68,9 @@ public static class DependencyInjection
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to apply database migrations.");
-            throw;
+            // Do not crash the host on migration failure (causes HTTP 500.30 on Azure App Service).
+            // Log and let the app start; health checks will report DB status.
+            logger.LogError(ex, "Failed to apply database migrations. The app will continue to start.");
         }
     }
 }

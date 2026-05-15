@@ -30,15 +30,13 @@ if (!string.IsNullOrEmpty(virtualPath))
     app.UsePathBase(new PathString(virtualPath));
 }
 app.UseRouting();
-if (app.Environment.IsDevelopment())
+
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Person Identification API v1");
-        c.RoutePrefix = string.Empty;
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Person Identification API v1");
+    c.RoutePrefix = string.Empty;
+});
 
 app.UseCors("AllowAngular");
 app.UseHttpsRedirection();

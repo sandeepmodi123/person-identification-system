@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PersonIdentificationSystem.API.DTOs;
+using PersonIdentificationSystem.API.Infrastructure;
 using PersonIdentificationSystem.API.Services;
 
 namespace PersonIdentificationSystem.API.Controllers;
@@ -100,5 +101,18 @@ public class PersonController : ControllerBase
     public async Task<IActionResult> DeletePhoto(Guid id, Guid photoId, CancellationToken ct = default)
     {
         return await _personService.DeletePhotoAsync(id, photoId, ct) ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Re-sync all person photos with CompreFace. Mints PersonFaceId for any
+    /// person missing one, deletes existing CompreFace faces for that subject,
+    /// then re-uploads every photo. Idempotent.
+    /// </summary>
+    [HttpPost("sync-embeddings")]
+    [ProducesResponseType(typeof(SyncEmbeddingsResult), 200)]
+    public async Task<ActionResult<SyncEmbeddingsResult>> SyncEmbeddings(CancellationToken ct = default)
+    {
+        var result = await _personService.SyncEmbeddingsAsync(ct);
+        return Ok(result);
     }
 }

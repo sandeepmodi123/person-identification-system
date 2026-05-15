@@ -6,15 +6,25 @@ using System.Text.Json.Serialization;
 namespace PersonIdentificationSystem.API.Infrastructure;
 
 public record FaceMatchResult(
-    Guid PersonId,
-    decimal Confidence,
-    string? PersonName
+    string PersonFaceId,
+    decimal Confidence
+);
+
+public record SyncEmbeddingsResult(
+    int Synced,
+    int Failed,
+    string Message
 );
 
 public interface IPythonFaceRecognitionClient
 {
     Task<FaceMatchResult?> MatchFaceAsync(string imageBase64, CancellationToken ct = default);
-    Task<bool> RegisterFaceAsync(Guid personId, string personName, string imageBase64, CancellationToken ct = default);
+    /// <summary>
+    /// Register a face under the given CompreFace subject (PersonFaceId).
+    /// </summary>
+    Task<bool> RegisterFaceAsync(string personFaceId, string imageBase64, CancellationToken ct = default);
+    Task UnregisterFaceAsync(string personFaceId, CancellationToken ct = default);
+    Task WipeAllAsync(CancellationToken ct = default);
     Task<bool> IsHealthyAsync(CancellationToken ct = default);
 }
 
@@ -47,10 +57,10 @@ public class PythonFaceRecognitionClient : IPythonFaceRecognitionClient
             var json = await response.Content.ReadAsStringAsync(ct);
             var result = JsonSerializer.Deserialize<PythonMatchResponse>(json, _json);
 
-            if (result is null || !result.MatchFound || result.PersonId is null)
+            if (result is null || !result.MatchFound || string.IsNullOrEmpty(result.PersonFaceId))
                 return null;
 
-            return new FaceMatchResult(result.PersonId.Value, result.Confidence, result.PersonName);
+            return new FaceMatchResult(result.PersonFaceId, result.Confidence);
         }
         catch (Exception ex)
         {
@@ -59,12 +69,11 @@ public class PythonFaceRecognitionClient : IPythonFaceRecognitionClient
         }
     }
 
-    public async Task<bool> RegisterFaceAsync(Guid personId, string personName, string imageBase64, CancellationToken ct = default)
+    public async Task<bool> RegisterFaceAsync(string personFaceId, string imageBase64, CancellationToken ct = default)
     {
         var payload = JsonSerializer.Serialize(new
         {
-            person_id = personId.ToString(),
-            person_name = personName,
+            person_face_id = personFaceId,
             image_base64 = imageBase64
         });
         var content = new StringContent(payload, Encoding.UTF8, "application/json");
@@ -74,16 +83,43 @@ public class PythonFaceRecognitionClient : IPythonFaceRecognitionClient
             var response = await _http.PostAsync("/api/register", content, ct);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Python service register returned {StatusCode}", response.StatusCode);
+                _logger.LogWarning("CompreFace register failed for face_id={FaceId}: {Status}", personFaceId, response.StatusCode);
                 return false;
             }
-            _logger.LogInformation("Registered face embedding for person {PersonId} ({PersonName})", personId, personName);
+            _logger.LogInformation("CompreFace register OK for face_id={FaceId}", personFaceId);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error registering face for person {PersonId}", personId);
+            _logger.LogError(ex, "CompreFace register error for face_id={FaceId}", personFaceId);
             return false;
+        }
+    }
+
+    public async Task UnregisterFaceAsync(string personFaceId, CancellationToken ct = default)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new { person_face_id = personFaceId });
+            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            await _http.PostAsync("/api/unregister", content, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CompreFace unregister error for face_id={FaceId}", personFaceId);
+        }
+    }
+
+    public async Task WipeAllAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var content = new StringContent("{}", Encoding.UTF8, "application/json");
+            await _http.PostAsync("/api/wipe-all", content, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CompreFace wipe-all error");
         }
     }
 
@@ -105,11 +141,8 @@ public class PythonFaceRecognitionClient : IPythonFaceRecognitionClient
         [JsonPropertyName("match_found")]
         public bool MatchFound { get; set; }
 
-        [JsonPropertyName("person_id")]
-        public Guid? PersonId { get; set; }
-
-        [JsonPropertyName("person_name")]
-        public string? PersonName { get; set; }
+        [JsonPropertyName("person_face_id")]
+        public string? PersonFaceId { get; set; }
 
         [JsonPropertyName("confidence")]
         public decimal Confidence { get; set; }

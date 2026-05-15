@@ -12,7 +12,15 @@ import { Person } from '../../core/models/models';
     <div class="page">
       <div class="page-header">
         <h1>Person Management</h1>
-        <button class="btn-primary" (click)="showAddForm = true">+ Add Person</button>
+        <div class="header-actions">
+          <button class="btn-secondary"
+                  [disabled]="isSyncing"
+                  (click)="syncEmbeddings()"
+                  title="Re-upload all person photos to CompreFace">
+            {{ isSyncing ? 'Syncing...' : '🔄 Sync Embeddings' }}
+          </button>
+          <button class="btn-primary" (click)="showAddForm = true">+ Add Person</button>
+        </div>
       </div>
 
       <!-- Add Person Form -->
@@ -92,6 +100,7 @@ import { Person } from '../../core/models/models';
   styles: [`
     .page { max-width: 1200px; margin: 0 auto; }
     .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
     h1 { color: #1a237e; margin: 0; }
     .card { background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 24px; }
     .form-row { margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
@@ -125,6 +134,7 @@ export class PersonListComponent implements OnInit {
   searchTerm = '';
   showAddForm = false;
   isSaving = false;
+  isSyncing = false;
   selectedPhotos: File[] = [];
   newPerson: { name: string; description: string; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' } = { name: '', description: '', riskLevel: 'Medium' };
 
@@ -200,6 +210,24 @@ export class PersonListComponent implements OnInit {
     if (confirm(`Delete ${person.name}? This cannot be undone.`)) {
       this.personService.deletePerson(person.id).subscribe(() => this.loadPersons());
     }
+  }
+
+  syncEmbeddings(): void {
+    if (!confirm('Re-upload all person photos to CompreFace? This may take a minute.')) {
+      return;
+    }
+    this.isSyncing = true;
+    this.personService.syncEmbeddings().subscribe({
+      next: (res) => {
+        this.isSyncing = false;
+        alert(`✅ ${res.message}\n\nSynced: ${res.synced}\nFailed: ${res.failed}`);
+      },
+      error: (err) => {
+        this.isSyncing = false;
+        const msg = err?.error?.message ?? 'Sync failed. Check the face recognition service.';
+        alert(`❌ ${msg}`);
+      }
+    });
   }
 
   prevPage(): void {

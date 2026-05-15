@@ -13,7 +13,7 @@ import { Detection } from '../../core/models/models';
 
       <!-- Filters -->
       <div class="card filters">
-        <input [(ngModel)]="filters.minConfidence" type="number" min="0" max="1" step="0.05" placeholder="Min confidence (0-1)" />
+        <input [(ngModel)]="filters.minConfidence" type="number" min="0" max="100" step="1" placeholder="Min confidence % (0-100)" />
         <select [(ngModel)]="filters.isVerified">
           <option value="">All</option>
           <option value="false">Unverified</option>
@@ -44,11 +44,11 @@ import { Detection } from '../../core/models/models';
               <td>{{ d.detectionTimestamp | date:'medium' }}</td>
               <td>{{ d.riskLevel ?? '—' }}</td>
               <td>{{ d.isVerified ? d.verificationStatus : '⏳ Pending' }}</td>
-              <td *ngIf="!d.isVerified">
-                <button class="btn-icon" (click)="verify(d, 'TruePositive')">✅ True</button>
-                <button class="btn-icon btn-danger" (click)="verify(d, 'FalsePositive')">❌ False</button>
+              <td>
+                <button *ngIf="!d.isVerified" class="btn-icon" (click)="verify(d, 'TruePositive')">✅ True</button>
+                <button *ngIf="!d.isVerified" class="btn-icon btn-danger" (click)="verify(d, 'FalsePositive')">❌ False</button>
+                <button class="btn-icon btn-danger" (click)="deleteDetection(d)" title="Delete this detection">🗑 Delete</button>
               </td>
-              <td *ngIf="d.isVerified">—</td>
             </tr>
           </tbody>
         </table>
@@ -93,10 +93,15 @@ export class DetectionsComponent implements OnInit {
 
   loadDetections(): void {
     const isVerified = this.filters.isVerified ? this.filters.isVerified === 'true' : undefined;
+    // UI accepts a percent (0-100); API expects a 0..1 ratio.
+    const minConfidenceRatio =
+      this.filters.minConfidence != null && !isNaN(this.filters.minConfidence)
+        ? this.filters.minConfidence / 100
+        : undefined;
     this.detectionService.getDetections({
       page: this.page,
       pageSize: this.pageSize,
-      minConfidence: this.filters.minConfidence,
+      minConfidence: minConfidenceRatio,
       isVerified,
     }).subscribe((r) => {
       this.detections = r.items;
@@ -106,6 +111,15 @@ export class DetectionsComponent implements OnInit {
 
   verify(d: Detection, status: 'TruePositive' | 'FalsePositive'): void {
     this.detectionService.verifyDetection(d.id, status).subscribe(() => this.loadDetections());
+  }
+
+  deleteDetection(d: Detection): void {
+    const label = d.personName ? `the detection for "${d.personName}"` : 'this detection';
+    if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    this.detectionService.deleteDetection(d.id).subscribe({
+      next: () => this.loadDetections(),
+      error: (err) => alert(`Failed to delete detection: ${err?.message ?? err}`),
+    });
   }
 
   prevPage(): void { if (this.page > 1) { this.page--; this.loadDetections(); } }

@@ -27,6 +27,8 @@ public class ApplicationDbContext : DbContext
             e.Property(x => x.RiskLevel).HasMaxLength(20).HasDefaultValue("Medium");
             e.Property(x => x.DateAdded).HasDefaultValueSql("NOW()");
             e.Property(x => x.DateUpdated).HasDefaultValueSql("NOW()");
+            e.Property(x => x.PersonFaceId).HasMaxLength(64);
+            e.HasIndex(x => x.PersonFaceId).IsUnique().HasFilter("person_face_id IS NOT NULL");
         });
 
         // ── PersonPhoto ─────────────────────────────────────────────────────
@@ -63,7 +65,7 @@ public class ApplicationDbContext : DbContext
             e.HasOne(x => x.Stream)
              .WithMany(x => x.Detections)
              .HasForeignKey(x => x.StreamId)
-             .OnDelete(DeleteBehavior.SetNull);
+             .OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Person)
              .WithMany(x => x.Detections)
              .HasForeignKey(x => x.PersonId)

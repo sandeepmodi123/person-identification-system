@@ -17,7 +17,8 @@ import { ToastService } from './core/services/toast.service';
         <li><a routerLink="/persons" routerLinkActive="active">Persons</a></li>
         <li><a routerLink="/streams" routerLinkActive="active">Streams</a></li>
         <li><a routerLink="/detections" routerLinkActive="active">Detections</a></li>
-        <li><a routerLink="/notifications" routerLinkActive="active">Notifications</a></li>
+        <!-- Notifications hidden for now -->
+        <!-- <li><a routerLink="/notifications" routerLinkActive="active">Notifications</a></li> -->
       </ul>
     </nav>
     <main class="main-content">

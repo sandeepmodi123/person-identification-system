@@ -47,7 +47,7 @@ public class MatchingService : IMatchingService
     {
         var threshold = _config.GetValue<decimal>("Matching:ConfidenceThreshold", 0.85m);
 
-        // 1. Call Python service for face matching
+        // 1. Call Python service for face matching - returns the CompreFace subject (PersonFaceId).
         var matchResult = await _pythonClient.MatchFaceAsync(request.FrameBase64, ct);
 
         if (matchResult is null || matchResult.Confidence < threshold)
@@ -55,12 +55,19 @@ public class MatchingService : IMatchingService
             return new ProcessFrameResult(false, null, null, null, null, false);
         }
 
-        // 2. Look up person
-        var person = await _personRepo.GetByIdAsync(matchResult.PersonId, ct);
+        // 2. Look up person by PersonFaceId (CompreFace subject).
+        var person = await _personRepo.GetByPersonFaceIdAsync(matchResult.PersonFaceId, ct);
         if (person is null || !person.IsActive)
         {
+            _logger.LogWarning(
+                "CompreFace returned face_id={FaceId} but no active person mapped.",
+                matchResult.PersonFaceId);
             return new ProcessFrameResult(false, null, null, null, null, false);
         }
+
+        _logger.LogInformation(
+            "Person detected: {Name} (face_id={FaceId}, confidence={Confidence:F3})",
+            person.Name, matchResult.PersonFaceId, matchResult.Confidence);
 
         // 3. Persist detection
         var detection = await _detectionService.CreateDetectionAsync(

@@ -49,10 +49,29 @@ public class DetectionController : ControllerBase
         return detection is null ? NotFound() : Ok(detection);
     }
 
+    /// <summary>Delete a single detection event.</summary>
+    [HttpDelete("detections/{id:guid}")]
+    [ProducesResponseType(204)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> DeleteDetection(Guid id, CancellationToken ct = default)
+    {
+        var deleted = await _detectionService.DeleteDetectionAsync(id, ct);
+        return deleted ? NoContent() : NotFound();
+    }
+
     /// <summary>Process a video frame for face matching (called by stream processor).</summary>
     [HttpPost("matching/process-frame")]
     [ProducesResponseType(typeof(ProcessFrameResult), 200)]
     public async Task<ActionResult<ProcessFrameResult>> ProcessFrame(
         [FromBody] ProcessFrameRequest request, CancellationToken ct = default)
         => Ok(await _matchingService.ProcessFrameAsync(request, ct));
+
+    /// <summary>Delete all detection events except today's (UTC).</summary>
+    [HttpDelete("detections/purge-old")]
+    [ProducesResponseType(200)]
+    public async Task<ActionResult<object>> PurgeOldDetections(CancellationToken ct = default)
+    {
+        var deleted = await _detectionService.DeleteAllExceptTodayAsync(ct);
+        return Ok(new { deleted, message = $"Deleted {deleted} detection(s) older than today (UTC)." });
+    }
 }
