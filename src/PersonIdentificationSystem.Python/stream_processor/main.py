@@ -10,20 +10,46 @@ import sys
 # Silence ffmpeg/hevc stderr spam BEFORE OpenCV/ffmpeg gets imported anywhere.
 os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
+os.environ.setdefault("OPENCV_VIDEOIO_DEBUG", "0")
 
-# Redirect raw fd 2 (stderr) to NUL so ffmpeg's libavcodec error spam
-# ("[hevc @ ...] Could not find ref with POC ...") can't reach the console.
-# Python logging keeps working because we install a fresh stderr stream below.
-try:
-    _real_stderr = os.dup(2)
-    _devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(_devnull, 2)
-    os.close(_devnull)
-    # Re-attach Python's sys.stderr to a real terminal handle so our own logs
-    # (which write to stdout via StreamHandler default) remain visible.
-    sys.stderr = os.fdopen(_real_stderr, "w", buffering=1)
-except Exception:
-    pass
+
+def _silence_native_stderr() -> None:
+    """Route fd-level stderr (used by ffmpeg/libavcodec) to NUL.
+
+    Python logging is reattached to a fresh stream so our own logs stay visible.
+    Done at Python level (os.dup2) AND C-runtime level (freopen via ctypes) -
+    on Windows, ffmpeg writes through the C runtime's cached stderr FILE*
+    which doesn't follow os.dup2 by itself.
+    """
+    try:
+        # Save original stderr so our logger keeps a real terminal.
+        saved = os.dup(2)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, 2)
+        os.close(devnull_fd)
+        # Reattach Python's sys.stderr to the saved terminal handle.
+        sys.stderr = os.fdopen(saved, "w", buffering=1)
+
+        # C-runtime level: ffmpeg uses fprintf(stderr, ...) which uses the
+        # C runtime's FILE* cached at startup. freopen makes it point at NUL.
+        if sys.platform == "win32":
+            import ctypes
+            try:
+                ucrt = ctypes.CDLL("ucrtbase.dll")
+            except OSError:
+                ucrt = ctypes.CDLL("msvcrt.dll")
+            try:
+                # __acrt_iob_func(2) returns FILE* for stderr in UCRT.
+                ucrt.__acrt_iob_func.restype = ctypes.c_void_p
+                stderr_file = ucrt.__acrt_iob_func(2)
+                ucrt.freopen(b"NUL", b"w", ctypes.c_void_p(stderr_file))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+_silence_native_stderr()
 
 import asyncio
 from datetime import datetime
