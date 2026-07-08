@@ -16,6 +16,9 @@ _locks: Dict[str, asyncio.Lock] = {}
 
 MJPEG_FPS = int(os.getenv("MJPEG_FPS", "10"))
 MJPEG_PORT = int(os.getenv("MJPEG_PORT", "8085"))
+MJPEG_FIRST_FRAME_TIMEOUT_SECONDS = float(
+    os.getenv("MJPEG_FIRST_FRAME_TIMEOUT_SECONDS", "3")
+)
 
 
 async def set_frame(stream_id: str, frame: np.ndarray) -> None:
@@ -40,6 +43,24 @@ def get_active_stream_ids() -> list:
 async def mjpeg_handler(request: web.Request) -> web.StreamResponse:
     """Serve an MJPEG stream for the given stream_id."""
     stream_id = request.match_info["stream_id"]
+
+    # Fail fast if there are no frames yet for this stream.
+    # Without this, browsers keep waiting on an open HTTP response and
+    # the UI appears as a blank/hung video tile.
+    waited = 0.0
+    while _latest_frames.get(stream_id) is None and waited < MJPEG_FIRST_FRAME_TIMEOUT_SECONDS:
+        await asyncio.sleep(0.1)
+        waited += 0.1
+
+    if _latest_frames.get(stream_id) is None:
+        return web.Response(
+            status=503,
+            text=f"No frames available for stream '{stream_id}'.",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+            },
+        )
 
     response = web.StreamResponse(
         status=200,
@@ -85,7 +106,13 @@ async def mjpeg_handler(request: web.Request) -> web.StreamResponse:
 
 async def streams_list_handler(request: web.Request) -> web.Response:
     """Return a JSON list of active stream IDs."""
-    return web.json_response(get_active_stream_ids())
+    return web.json_response(
+        get_active_stream_ids(),
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
 
 
 async def start_mjpeg_server() -> None:

@@ -27,7 +27,7 @@ import { SignalrService } from '../../core/services/signalr.service';
             [src]="getMjpegUrl(s.id)"
             [alt]="s.cameraName"
             class="stream-feed"
-            (error)="onStreamError($event)"
+            (error)="onStreamError($event, s.id)"
           />
         </div>
       </div>
@@ -147,10 +147,15 @@ export class LiveMonitoringComponent implements OnInit, OnDestroy {
     return `${environment.mjpegBaseUrl}/stream/${streamId}/mjpeg`;
   }
 
-  onStreamError(event: Event): void {
+  onStreamError(event: Event, streamId: string): void {
     const img = event.target as HTMLImageElement;
     img.style.background = '#333';
     img.alt = 'Stream offline';
+
+    // Retry periodically so streams that come online later recover automatically.
+    setTimeout(() => {
+      img.src = `${this.getMjpegUrl(streamId)}?t=${Date.now()}`;
+    }, 5000);
   }
 
   ngOnDestroy(): void {

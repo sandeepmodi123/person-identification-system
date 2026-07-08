@@ -1,11 +1,14 @@
 """Face detector - detects, scores, and crops faces from video frames.
 
-Uses OpenCV Haar Cascade for fast local detection. Local detection is only a
-gate; the actual recognition happens in CompreFace. Scoring lets the stream
-processor pick the single best frame per 1-second window before paying the
-network/CPU cost of a CompreFace call.
+Uses Ultralytics YOLOv8-face (yolov8n-face.pt) for accurate CNN face detection.
+The model file is auto-downloaded on first run if not already present.
+
+Local detection picks the best face crop per frame; the actual recognition
+happens downstream in CompreFace via the .NET API.
 """
 import base64
+import os
+import urllib.request
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -14,68 +17,122 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
+# YOLOv8-face weights (lindevs/yolov8-face GitHub release).
+YOLO_FACE_MODEL_URL = (
+    "https://github.com/lindevs/yolov8-face/releases/latest/download/"
+    "yolov8n-face-lindevs.pt"
+)
+YOLO_FACE_MODEL_FILENAME = "yolov8n-face.pt"
+
+
 @dataclass
 class FrameScore:
     """Quality metrics for a video frame that contains at least one face."""
     face_count: int
     largest_face_area: int       # in pixels (w*h)
     sharpness: float             # Laplacian variance of the face crop (higher = sharper)
-    full_frame_b64: str          # full original frame, base64 JPEG - sent to CompreFace
+    full_frame_b64: str          # full original frame, base64 JPEG
+    face_only_b64: str           # padded crop of the largest face, base64 JPEG
     score: float                 # composite score (larger = better)
 
     # Backwards-compat alias used by older callers.
     @property
     def face_crop_b64(self) -> str:
-        return self.full_frame_b64
+        return self.face_only_b64
+
+
+def _ensure_yolo_face_model() -> str:
+    """Make sure the YOLOv8 face model is available on disk. Returns its path."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    # Look for the file next to the script first, then in models/.
+    for candidate in (
+        os.path.join(here, YOLO_FACE_MODEL_FILENAME),
+        os.path.join(here, "models", YOLO_FACE_MODEL_FILENAME),
+    ):
+        if os.path.exists(candidate) and os.path.getsize(candidate) > 1_000_000:
+            return candidate
+
+    model_dir = os.path.join(here, "models")
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, YOLO_FACE_MODEL_FILENAME)
+    logger.info("Downloading YOLOv8 face model to %s ...", model_path)
+    urllib.request.urlretrieve(YOLO_FACE_MODEL_URL, model_path)
+    logger.info("YOLOv8 face model downloaded (%d bytes).",
+                os.path.getsize(model_path))
+    return model_path
 
 
 class FaceDetector:
-    """Detects faces in a base64-encoded image and returns cropped face images."""
+    """YOLOv8-face CNN detector with quality scoring.
 
-    # Minimum face bounding-box edge in pixels. Below this Haar produces many
-    # false positives at this camera distance.
-    MIN_FACE_SIZE = 60
-    # Padding around the detected face when cropping (fraction of max(w,h)).
-    CROP_PADDING = 0.45
-    # Minimum Laplacian-variance sharpness for a candidate to be considered.
-    # Anything below this is almost certainly a Haar false positive on a blurry patch.
-    MIN_SHARPNESS = 80.0
-    # Upscale crops so the face is large enough for CompreFace's detector.
-    TARGET_CROP_MIN_EDGE = 320
+    Defaults below mirror the tuned values from the operator's reference
+    script so behavior here matches that snippet 1:1.
+    """
+
+    # Minimum face bounding-box edge in pixels.
+    MIN_FACE_SIZE = 100
+    # Padding around the detected face when cropping (fraction of each side).
+    PADDING_RATIO = 0.50
+    # Reject crops blurrier than this (Laplacian variance).
+    BLUR_THRESHOLD = 60.0
+    # YOLO detection confidence threshold.
+    YOLO_CONF = 0.6
+    # JPEG quality for saved / dispatched face crops (0-100).
+    JPEG_QUALITY = 98
 
     def __init__(self):
-        self._detector = None
+        self._model = None
         self._load_model()
 
     def _load_model(self):
         try:
+            from ultralytics import YOLO
+        except ImportError:
+            logger.error(
+                "ultralytics is not installed - face detection disabled. "
+                "Run: pip install ultralytics"
+            )
+            self._model = None
+            return
+
+        try:
             import cv2
             try:
-                # Silence OpenCV's own log channel (separate from ffmpeg).
                 cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
             except Exception:
                 pass
-            self._detector = cv2.CascadeClassifier(
-                cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            )
-            logger.info("OpenCV Haar Cascade face detector loaded.")
         except ImportError:
-            logger.warning("OpenCV not available - face detection disabled.")
-            self._detector = None
+            logger.error("OpenCV not available - face detection disabled.")
+            self._model = None
+            return
+
+        try:
+            model_path = _ensure_yolo_face_model()
+        except Exception as e:
+            logger.error("Could not obtain YOLOv8 face model: %s", e)
+            self._model = None
+            return
+
+        try:
+            self._model = YOLO(model_path)
+            logger.info("YOLOv8 face detector loaded (conf>=%.2f).", self.YOLO_CONF)
+        except Exception as e:
+            logger.error("Failed to load YOLOv8 face model: %s", e)
+            self._model = None
 
     # ------------------------------------------------------------------ public
 
     def detect(self, frame_b64: str) -> List[str]:
         """Legacy helper: return list of base64-encoded face crops (one per face)."""
         s = self.score(frame_b64)
-        return [s.face_crop_b64] if s else []
+        return [s.face_only_b64] if s else []
 
     def score(self, frame_b64: str) -> Optional[FrameScore]:
-        """Detect faces and return quality metrics + a padded crop of the largest face.
+        """Detect faces with YOLOv8 and return quality metrics + a padded crop.
 
-        Returns None if no face meeting the minimum size is detected.
+        Returns None if no face passes size and sharpness gates.
         """
-        if self._detector is None:
+        if self._model is None:
             return None
 
         try:
@@ -88,42 +145,73 @@ class FaceDetector:
             if frame is None:
                 return None
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self._detector.detectMultiScale(
-                gray,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=(self.MIN_FACE_SIZE, self.MIN_FACE_SIZE),
-            )
-            if len(faces) == 0:
+            h_frame, w_frame = frame.shape[:2]
+
+            results = self._model(frame, conf=self.YOLO_CONF, verbose=False)
+            if not results:
                 return None
 
-            # Pick the LARGEST face in the frame as the primary subject.
-            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-            area = int(w * h)
+            # Collect every face box from every result, keep the largest one
+            # that also passes size + sharpness gates.
+            best = None  # (area, x1, y1, x2, y2, sharpness, conf)
+            face_count = 0
+            for result in results:
+                boxes = getattr(result, "boxes", None)
+                if boxes is None:
+                    continue
+                for box in boxes:
+                    face_count += 1
+                    x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+                    box_w = x2 - x1
+                    box_h = y2 - y1
+                    if box_w < self.MIN_FACE_SIZE or box_h < self.MIN_FACE_SIZE:
+                        continue
 
-            # Sharpness via variance of Laplacian on the grayscale face region only.
-            face_gray = gray[y:y + h, x:x + w]
-            sharpness = float(cv2.Laplacian(face_gray, cv2.CV_64F).var())
+                    pad_x = int(box_w * self.PADDING_RATIO)
+                    pad_y = int(box_h * self.PADDING_RATIO)
+                    px1 = max(0, x1 - pad_x)
+                    py1 = max(0, y1 - pad_y)
+                    px2 = min(w_frame, x2 + pad_x)
+                    py2 = min(h_frame, y2 + pad_y)
 
-            # Reject obvious Haar false positives (blurry patches that look face-like).
-            if sharpness < self.MIN_SHARPNESS:
+                    cropped = frame[py1:py2, px1:px2]
+                    if cropped.size == 0:
+                        continue
+
+                    gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+                    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                    if sharpness < self.BLUR_THRESHOLD:
+                        continue
+
+                    area = box_w * box_h
+                    conf = float(box.conf[0].item()) if hasattr(box, "conf") else self.YOLO_CONF
+                    if best is None or area > best[0]:
+                        best = (area, px1, py1, px2, py2, sharpness, conf)
+
+            if best is None:
                 return None
 
-            # Send the FULL frame to CompreFace. Its CNN detector is far better
-            # than Haar at finding the face and produces stronger embeddings on
-            # uncropped, un-resampled imagery than on a tiny upscaled crop.
-            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            area, px1, py1, px2, py2, sharpness, conf = best
+            face_crop = frame[py1:py2, px1:px2]
+
+            # Encode the padded face crop.
+            _, fbuf = cv2.imencode(".jpg", face_crop,
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), self.JPEG_QUALITY])
+            face_only_b64 = base64.b64encode(fbuf.tobytes()).decode("utf-8")
+
+            # Encode the full frame too (kept available for callers that need it).
+            _, buf = cv2.imencode(".jpg", frame,
+                                  [int(cv2.IMWRITE_JPEG_QUALITY), self.JPEG_QUALITY])
             full_frame_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
 
-            # Composite score: large + sharp wins. sqrt() keeps the units sane.
-            composite = (area ** 0.5) * (sharpness ** 0.5)
+            composite = (area ** 0.5) * (sharpness ** 0.5) * conf
 
             return FrameScore(
-                face_count=len(faces),
-                largest_face_area=area,
+                face_count=face_count,
+                largest_face_area=int(area),
                 sharpness=sharpness,
                 full_frame_b64=full_frame_b64,
+                face_only_b64=face_only_b64,
                 score=composite,
             )
 

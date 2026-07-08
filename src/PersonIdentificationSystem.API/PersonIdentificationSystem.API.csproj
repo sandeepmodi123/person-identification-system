@@ -46,9 +46,6 @@
     <PackageReference Include="StackExchange.Redis" Version="2.7.10" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.0" />
 
-    <!-- RabbitMQ -->
-    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
-
     <!-- Email -->
     <PackageReference Include="MailKit" Version="4.4.0" />
     <PackageReference Include="MimeKit" Version="4.15.1" />
@@ -57,7 +54,6 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" Version="8.0.1" />
     <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="8.0.1" />
-    <PackageReference Include="AspNetCore.HealthChecks.RabbitMQ" Version="8.0.1" />
     <PackageReference Include="AspNetCore.HealthChecks.Uris" Version="8.0.1" />
   </ItemGroup>
 

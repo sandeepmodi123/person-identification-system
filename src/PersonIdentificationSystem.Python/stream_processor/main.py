@@ -7,6 +7,14 @@ import logging
 import os
 import sys
 
+# Force UTF-8 on stdout/stderr so emoji/Unicode log lines don't blow up on
+# Windows (Python 3.14 defaults console to cp1252, which crashes on '✅', '❌', etc.).
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # Silence ffmpeg/hevc stderr spam BEFORE OpenCV/ffmpeg gets imported anywhere.
 os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
@@ -28,7 +36,8 @@ def _silence_native_stderr() -> None:
         os.dup2(devnull_fd, 2)
         os.close(devnull_fd)
         # Reattach Python's sys.stderr to the saved terminal handle.
-        sys.stderr = os.fdopen(saved, "w", buffering=1)
+        # Use UTF-8 so emoji/Unicode in our own log lines don't crash on Windows.
+        sys.stderr = os.fdopen(saved, "w", buffering=1, encoding="utf-8", errors="replace")
 
         # C-runtime level: ffmpeg uses fprintf(stderr, ...) which uses the
         # C runtime's FILE* cached at startup. freopen makes it point at NUL.
@@ -58,7 +67,6 @@ import requests
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import httpx
-import aio_pika
 from dotenv import load_dotenv
 
 from frame_extractor import FrameExtractor
@@ -77,8 +85,6 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("aio_pika").setLevel(logging.WARNING)
-logging.getLogger("aiormq").setLevel(logging.WARNING)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 logging.getLogger("frame_extractor").setLevel(logging.ERROR)
 logging.getLogger("mjpeg_server").setLevel(logging.WARNING)
@@ -88,13 +94,46 @@ logger = logging.getLogger(__name__)
 # Configuration
 API_BASE_URL = os.getenv('API_BASE_URL', 'https://localhost:5001/api')
 FACE_SERVICE_URL = os.getenv('FACE_SERVICE_URL', 'http://localhost:8000')
-RABBITMQ_URL = os.getenv('RABBITMQ_URL', 'amqp://admin:RabbitMQPassword123@localhost:5672/')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 # Process up to TARGET_FPS frames per second from each stream. Every frame that
 # passes the local face gate (Haar + sharpness) is sent to CompreFace.
 TARGET_FPS = float(os.getenv('TARGET_FPS', '4'))
 FRAME_INTERVAL = float(os.getenv('FRAME_INTERVAL', str(1.0 / max(TARGET_FPS, 0.1))))
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))
+
+# Local snapshot of every frame sent to face recognition - for manual validation.
+SAVE_DETECTED_FACES = os.getenv('SAVE_DETECTED_FACES', 'true').lower() in ('1', 'true', 'yes', 'on')
+DETECTED_FACES_DIR = os.getenv('DETECTED_FACES_DIR', 'detected_faces')
+if SAVE_DETECTED_FACES:
+    os.makedirs(DETECTED_FACES_DIR, exist_ok=True)
+    logger.info("SAVE_DETECTED_FACES=ON  -> writing crops to: %s",
+                os.path.abspath(DETECTED_FACES_DIR))
+else:
+    logger.info("SAVE_DETECTED_FACES=OFF -> face crops will be dispatched without being saved to disk")
+
+
+def _safe_name(name: str) -> str:
+    """Make a string safe to use as a folder/file name."""
+    return "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in (name or "unknown"))
+
+
+def _save_face_snapshot(camera_location: str, face_b64: str, sharpness: float) -> str | None:
+    """Persist the JPEG bytes that are about to be sent for recognition. Returns the saved path."""
+    if not SAVE_DETECTED_FACES:
+        return None
+    try:
+        import base64 as _b64
+        cam_dir = os.path.join(DETECTED_FACES_DIR, _safe_name(camera_location))
+        os.makedirs(cam_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        filename = f"{ts}_s{int(sharpness)}.jpg"
+        filepath = os.path.join(cam_dir, filename)
+        with open(filepath, "wb") as f:
+            f.write(_b64.b64decode(face_b64))
+        return filepath
+    except Exception as e:
+        logger.error("Failed to save detected face snapshot: %s", e)
+        return None
 
 
 class StreamProcessor:
@@ -103,32 +142,8 @@ class StreamProcessor:
     def __init__(self):
         self.api_url = API_BASE_URL
         self.face_service_url = FACE_SERVICE_URL
-        self.rabbitmq_url = RABBITMQ_URL
-        self.connection = None
-        self.channel = None
-        self.exchange = None
         self._stream_tasks: Dict[str, asyncio.Task] = {}
-        
-    async def connect_rabbitmq(self):
-        """Connect to RabbitMQ"""
-        try:
-            logger.info("Connecting to RabbitMQ...")
-            self.connection = await aio_pika.connect_robust(self.rabbitmq_url)
-            self.channel = await self.connection.channel()
-            
-            # Declare exchange
-            self.exchange = await self.channel.declare_exchange(
-                'person_identification',
-                aio_pika.ExchangeType.DIRECT,
-                durable=True
-            )
-            
-            logger.info("✅ Connected to RabbitMQ")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to connect to RabbitMQ: {e}")
-            return False
-    
+
     async def get_active_streams(self):
         """Get list of active RTSP streams from API"""
         try:
@@ -161,26 +176,42 @@ class StreamProcessor:
 
         extractor = FrameExtractor(rtsp_url, FRAME_INTERVAL, stream_id=stream_id)
         detector = FaceDetector()
+        frames_read = 0
+        frames_rejected = 0
+        frames_saved = 0
 
         try:
-            # Publish stream status to RabbitMQ
-            if self.exchange:
-                message = aio_pika.Message(
-                    body=f'{{"stream_id": "{stream_id}", "status": "active"}}'.encode(),
-                    content_type='application/json'
-                )
-                await self.exchange.publish(message, routing_key='stream.status')
-
             async for frame_b64, captured_at in extractor.extract_frames():
                 try:
-                    # Local face gate: skip frames with no face / too blurry.
+                    frames_read += 1
+                    # Local face gate: skip frames with no face / too small / too blurry.
                     score = detector.score(frame_b64)
                     if score is None:
+                        frames_rejected += 1
+                        if frames_rejected % 30 == 0:
+                            logger.info(
+                                "Stream %s heartbeat: %d frames read, %d rejected, %d saved",
+                                camera_location, frames_read, frames_rejected, frames_saved,
+                            )
                         continue
+                    frames_saved += 1
 
-                    # Send the upscaled, padded face crop. Only this dispatch is logged.
+                    # Optionally persist a copy of the cropped face for manual
+                    # validation. Controlled by SAVE_DETECTED_FACES env var.
+                    if SAVE_DETECTED_FACES:
+                        saved_path = _save_face_snapshot(
+                            camera_location, score.face_only_b64, score.sharpness
+                        )
+                        if saved_path:
+                            logger.info(
+                                "Saved face snapshot: %s (sharpness=%.0f, area=%d)",
+                                saved_path, score.sharpness, score.largest_face_area,
+                            )
+
+                    # Send the CROPPED FACE to the recognition pipeline (not the
+                    # full frame). This is what the operator wants matched.
                     await self._dispatch_face(
-                        stream_id, score.face_crop_b64, captured_at
+                        stream_id, score.face_only_b64, captured_at
                     )
 
                 except Exception as e:
@@ -260,7 +291,6 @@ class StreamProcessor:
         logger.info("=" * 60)
         logger.info(f"API URL: {self.api_url}")
         logger.info(f"Face Service: {self.face_service_url}")
-        logger.info(f"RabbitMQ URL: {self.rabbitmq_url}")
         logger.info(f"Target FPS: {TARGET_FPS} (interval {FRAME_INTERVAL:.3f}s)")
         logger.info(f"Max Workers: {MAX_WORKERS}")
         logger.info("=" * 60)
@@ -268,19 +298,12 @@ class StreamProcessor:
         # Start MJPEG server for live stream viewing
         asyncio.create_task(start_mjpeg_server())
 
-        # Connect to RabbitMQ
-        rabbitmq_ready = await self.connect_rabbitmq()
-        if not rabbitmq_ready:
-            logger.warning("⚠️  RabbitMQ not available, continuing without queue")
-        
         # Start monitoring streams
         try:
             await self.monitor_streams()
         except KeyboardInterrupt:
             logger.info("Stream Processor shutting down...")
         finally:
-            if self.connection:
-                await self.connection.close()
             logger.info("Stream Processor stopped")
 
 

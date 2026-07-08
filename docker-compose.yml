@@ -37,26 +37,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── RabbitMQ ───────────────────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: personid_rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-personid_rabbit}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changerabbit}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: rabbitmq-diagnostics -q ping
-      interval: 15s
-      timeout: 10s
-      retries: 5
-
   # ── .NET Core API ──────────────────────────────────────────────────────────
   api:
     build:
@@ -69,15 +49,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__DefaultConnection: "Host=${POSTGRES_HOST:-postgres};Port=${POSTGRES_PORT:-5432};Database=${POSTGRES_DB:-personid_db};Username=${POSTGRES_USER:-personid_user};Password=${POSTGRES_PASSWORD:-changeme}"
       Redis__ConnectionString: "${REDIS_HOST:-redis}:${REDIS_PORT:-6379},password=${REDIS_PASSWORD:-changeredis}"
-      RabbitMQ__Host: ${RABBITMQ_HOST:-rabbitmq}
-      RabbitMQ__Username: ${RABBITMQ_USER:-personid_rabbit}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-changerabbit}
       PythonService__BaseUrl: "http://face-recognition:${FACE_RECOGNITION_PORT:-8000}"
       Email__SmtpHost: ${SMTP_HOST}
       Email__SmtpPort: ${SMTP_PORT:-587}
@@ -147,7 +122,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  rabbitmq_data:
   uploads:
   model_cache:
 

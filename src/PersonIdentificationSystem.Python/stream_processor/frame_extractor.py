@@ -24,14 +24,62 @@ class FrameExtractor:
         self.stream_id = stream_id
         self._cap = None
 
+        transports_raw = os.getenv("RTSP_TRANSPORTS", "tcp,udp")
+        self._rtsp_transports = [
+            t.strip().lower() for t in transports_raw.split(",") if t.strip()
+        ]
+        if not self._rtsp_transports:
+            self._rtsp_transports = ["tcp"]
+
+        self._open_timeout_ms = int(os.getenv("RTSP_OPEN_TIMEOUT_MS", "8000"))
+        self._read_timeout_ms = int(os.getenv("RTSP_READ_TIMEOUT_MS", "8000"))
+
     def _open(self):
         try:
             import cv2
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-            if not cap.isOpened():
-                raise StreamConnectionError(f"Cannot open RTSP stream: {self.rtsp_url}")
-            self._cap = cap
+
+            attempt_errors = []
+            for transport in self._rtsp_transports:
+                ffmpeg_opts = f"rtsp_transport;{transport}|stimeout;{self._open_timeout_ms * 1000}"
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = ffmpeg_opts
+
+                cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+
+                # Best effort: these properties are backend-dependent and may be ignored.
+                try:
+                    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, self._open_timeout_ms)
+                    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, self._read_timeout_ms)
+                except Exception:
+                    pass
+
+                if not cap.isOpened():
+                    cap.release()
+                    attempt_errors.append(
+                        f"transport={transport}: isOpened() returned False"
+                    )
+                    continue
+
+                # Validate by reading one frame so we fail fast on dead sessions.
+                ret, _ = cap.read()
+                if not ret:
+                    cap.release()
+                    attempt_errors.append(
+                        f"transport={transport}: opened but first frame read failed"
+                    )
+                    continue
+
+                self._cap = cap
+                logger.info(
+                    "RTSP connected for stream %s using transport=%s",
+                    self.stream_id or self.rtsp_url,
+                    transport,
+                )
+                return
+
+            details = "; ".join(attempt_errors) if attempt_errors else "no attempts recorded"
+            raise StreamConnectionError(
+                f"Cannot open RTSP stream: {self.rtsp_url}. Attempts: {details}"
+            )
         except ImportError:
             raise StreamConnectionError("OpenCV not installed.")
 

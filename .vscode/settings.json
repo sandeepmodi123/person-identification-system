@@ -1,0 +1,17 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^python -m py_compile frame_extractor\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location \"c:\\\\Users\\\\Lenovo\\\\source\\\\repos\\\\person-identification-system\\\\src\\\\PersonIdentificationSystem\\.Python\\\\stream_processor\"; python -c \"from frame_extractor import FrameExtractor; from exceptions import StreamConnectionError; e=FrameExtractor\\('rtsp://192\\.168\\.29\\.171/live/0/MAIN',1,'diag'\\);\ntry:\n e\\._open\\(\\); print\\('connected'\\); e\\.release\\(\\)\nexcept StreamConnectionError as ex:\n print\\(str\\(ex\\)\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "dotnet build": true,
+        "/^Set-Location \"c:\\\\Users\\\\Lenovo\\\\source\\\\repos\\\\person-identification-system\\\\src\\\\PersonIdentificationSystem\\.Python\\\\stream_processor\"; python -m py_compile mjpeg_server\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

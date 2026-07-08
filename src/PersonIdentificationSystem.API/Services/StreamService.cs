@@ -1,6 +1,8 @@
 using PersonIdentificationSystem.API.DTOs;
 using PersonIdentificationSystem.API.Models.Entities;
 using PersonIdentificationSystem.API.Repositories;
+using System.Net.Sockets;
+using System.Text;
 
 namespace PersonIdentificationSystem.API.Services;
 
@@ -82,21 +84,19 @@ public class StreamService : IStreamService
             ?? throw new KeyNotFoundException($"Stream {id} not found.");
 
         var start = DateTime.UtcNow;
-        // In production: attempt RTSP handshake. For POC, we ping the host.
         bool isReachable = false;
         string? errorMessage = null;
         int? latencyMs = null;
 
         try
         {
-            var uri = new Uri(stream.RtspUrl.Replace("rtsp://", "http://"));
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            // Attempt TCP connection to host:port
-            using var tcpClient = new System.Net.Sockets.TcpClient();
-            await tcpClient.ConnectAsync(uri.Host, uri.Port > 0 ? uri.Port : 554, ct);
+            var uri = new Uri(stream.RtspUrl);
+            var probe = await ProbeRtspDescribeAsync(uri, ct);
             sw.Stop();
-            isReachable = true;
+
+            isReachable = probe.Success;
+            errorMessage = probe.ErrorMessage;
             latencyMs = (int)sw.ElapsedMilliseconds;
         }
         catch (Exception ex)
@@ -109,6 +109,70 @@ public class StreamService : IStreamService
         await _streamRepo.UpdateAsync(stream, ct);
 
         return new StreamConnectionTestResult(id, isReachable, latencyMs, start, errorMessage);
+    }
+
+    private static async Task<(bool Success, string? ErrorMessage)> ProbeRtspDescribeAsync(Uri uri, CancellationToken ct)
+    {
+        if (!string.Equals(uri.Scheme, "rtsp", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, $"Invalid URL scheme '{uri.Scheme}'. Expected rtsp://");
+        }
+
+        var port = uri.Port > 0 ? uri.Port : 554;
+
+        using var tcpClient = new TcpClient();
+        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        connectCts.CancelAfter(TimeSpan.FromSeconds(6));
+        await tcpClient.ConnectAsync(uri.Host, port, connectCts.Token);
+
+        using var networkStream = tcpClient.GetStream();
+        networkStream.ReadTimeout = 6000;
+        networkStream.WriteTimeout = 6000;
+
+        var target = uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.PathAndQuery, UriFormat.UriEscaped);
+        var requestBuilder = new StringBuilder();
+        requestBuilder.Append($"DESCRIBE {target} RTSP/1.0\r\n");
+        requestBuilder.Append("CSeq: 1\r\n");
+        requestBuilder.Append("Accept: application/sdp\r\n");
+        requestBuilder.Append("User-Agent: PersonIdentificationSystem.API/1.0\r\n");
+
+        if (!string.IsNullOrWhiteSpace(uri.UserInfo))
+        {
+            var auth = Convert.ToBase64String(Encoding.ASCII.GetBytes(uri.UserInfo));
+            requestBuilder.Append($"Authorization: Basic {auth}\r\n");
+        }
+
+        requestBuilder.Append("\r\n");
+        var requestBytes = Encoding.ASCII.GetBytes(requestBuilder.ToString());
+        await networkStream.WriteAsync(requestBytes, ct);
+
+        var buffer = new byte[4096];
+        var read = await networkStream.ReadAsync(buffer, ct);
+        if (read <= 0)
+        {
+            return (false, "No RTSP response received from camera.");
+        }
+
+        var response = Encoding.ASCII.GetString(buffer, 0, read);
+        var firstLine = response.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)[0];
+
+        if (!firstLine.StartsWith("RTSP/", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, $"Unexpected RTSP response: {firstLine}");
+        }
+
+        var parts = firstLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var statusCode))
+        {
+            return (false, $"Could not parse RTSP status line: {firstLine}");
+        }
+
+        if (statusCode >= 200 && statusCode < 300)
+        {
+            return (true, null);
+        }
+
+        return (false, $"RTSP DESCRIBE failed with status {statusCode}: {firstLine}");
     }
 
     private static RTSPStreamDto MapToDto(RTSPStream s) => new(

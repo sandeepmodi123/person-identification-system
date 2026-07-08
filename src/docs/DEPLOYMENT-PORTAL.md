@@ -137,8 +137,8 @@ Portal → **Create a resource** → **Container App** → **Create**.
 
 | Name | Value |
 |---|---|
-| `COMPREFACE_URL` | `http://20.219.170.37:8000/` |
-| `COMPREFACE_API_KEY` | `76e8fde7-a78a-46c2-a343-ad6e24bf9a9a` |
+| `COMPREFACE_URL` | `http://98.83.137.214:8000/` |
+| `COMPREFACE_API_KEY` | `df7026b0-adf6-4e6d-9334-60b0a1226bfc` |
 | `CONFIDENCE_THRESHOLD` | `0.90` |
 | `MIN_FACE_SIZE_PX` | `60` |
 | `DEDUP_COOLDOWN_SECONDS` | `30` |
