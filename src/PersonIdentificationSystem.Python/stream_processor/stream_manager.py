@@ -27,6 +27,7 @@ class StreamManager:
         self.config = config
         self._tasks: Dict[str, asyncio.Task] = {}
         self._running = False
+        self._dispatch_semaphore = asyncio.Semaphore(config.max_concurrent_streams)
 
     async def start(self) -> None:
         """Start stream manager: load streams from API and begin processing."""
@@ -84,45 +85,62 @@ class StreamManager:
         """Process a single RTSP stream: extract frames and detect faces."""
         extractor = FrameExtractor(rtsp_url, interval_seconds, stream_id=stream_id)
         detector = FaceDetector()
+        processing_task: asyncio.Task | None = None
+
+        async def process_detection_frame(frame_b64: str, captured_at: str) -> None:
+            """Run detection+dispatch off the frame-read hot path.
+
+            Keep only one in-flight detection task per stream. This preserves
+            smooth MJPEG updates when matching/API work is slower than capture.
+            """
+            try:
+                loop = asyncio.get_running_loop()
+                faces = await loop.run_in_executor(None, detector.detect, frame_b64)
+                if not faces:
+                    return
+
+                for face_b64 in faces:
+                    await self._dispatch_frame(stream_id, face_b64, captured_at)
+
+            except Exception as e:
+                logger.error("Frame processing error for stream %s: %s", stream_id, e)
 
         try:
             async for frame_b64, captured_at in extractor.extract_frames():
-                try:
-                    faces = detector.detect(frame_b64)
-                    if not faces:
-                        continue
-
-                    for face_b64 in faces:
-                        await self._dispatch_frame(stream_id, face_b64, captured_at)
-
-                except Exception as e:
-                    logger.error("Frame processing error for stream %s: %s", stream_id, e)
+                if processing_task is None or processing_task.done():
+                    processing_task = asyncio.create_task(
+                        process_detection_frame(frame_b64, captured_at)
+                    )
 
         except StreamConnectionError as e:
             logger.error("Stream %s connection failed: %s", stream_id, e)
         except asyncio.CancelledError:
             logger.info("Stream %s task cancelled.", stream_id)
         finally:
+            if processing_task and not processing_task.done():
+                processing_task.cancel()
+                await asyncio.gather(processing_task, return_exceptions=True)
             extractor.release()
 
     async def _dispatch_frame(self, stream_id: str, face_b64: str, captured_at: str) -> None:
         """Send a face crop to the .NET API for matching."""
-        async with httpx.AsyncClient(base_url=self.config.api_url, timeout=30) as client:
-            payload = {
-                "streamId": stream_id,
-                "frameBase64": face_b64,
-                "capturedAt": captured_at,
-            }
-            response = await client.post("/api/matching/process-frame", json=payload)
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("matchFound"):
-                    logger.warning(
-                        "MATCH: person=%s confidence=%.2f stream=%s",
-                        result.get("personName"),
-                        result.get("confidenceScore", 0),
-                        stream_id,
-                    )
+        async with self._dispatch_semaphore:
+            async with httpx.AsyncClient(base_url=self.config.api_url, timeout=30) as client:
+                payload = {
+                    "streamId": stream_id,
+                    "frameBase64": face_b64,
+                    "capturedAt": captured_at,
+                }
+                response = await client.post("/api/matching/process-frame", json=payload)
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("matchFound"):
+                        logger.warning(
+                            "MATCH: person=%s confidence=%.2f stream=%s",
+                            result.get("personName"),
+                            result.get("confidenceScore", 0),
+                            stream_id,
+                        )
 
 
 async def main():

@@ -15,8 +15,8 @@ class Settings(BaseSettings):
 
     # Matching
     # CompreFace similarity is 0..1. Real CCTV faces rarely exceed 0.85, so we use
-    # 0.75 as the default operating point - tune via CONFIDENCE_THRESHOLD env var.
-    confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.75"))
+    # 0.40 as the default operating point - tune via CONFIDENCE_THRESHOLD env var.
+    confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.40"))
     # Minimum face bounding box dimension (in pixels) to accept. Tiny faces are skipped.
     min_face_size_px: int = int(os.getenv("MIN_FACE_SIZE_PX", "40"))
     # Cooldown window in seconds for deduplicating repeat detections of the same person.

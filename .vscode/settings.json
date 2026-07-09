@@ -12,6 +12,10 @@
         "/^Set-Location \"c:\\\\Users\\\\Lenovo\\\\source\\\\repos\\\\person-identification-system\\\\src\\\\PersonIdentificationSystem\\.Python\\\\stream_processor\"; python -m py_compile mjpeg_server\\.py$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^Set-Location \"c:\\\\Users\\\\Lenovo\\\\source\\\\repos\\\\person-identification-system\\\\src\\\\PersonIdentificationSystem\\.Python\\\\stream_processor\"; python -m py_compile main\\.py frame_extractor\\.py mjpeg_server\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

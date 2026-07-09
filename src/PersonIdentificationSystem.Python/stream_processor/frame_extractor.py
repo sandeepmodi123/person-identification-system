@@ -103,7 +103,7 @@ class FrameExtractor:
             import cv2
             loop = asyncio.get_event_loop()
             last_yield = 0.0
-            read_interval = 0.1  # ~10fps for MJPEG smoothness
+            read_interval = float(os.getenv("RTSP_READ_INTERVAL_SECONDS", "0.05"))  # ~20fps default
 
             while True:
                 # Run blocking read in a thread so the event loop stays free

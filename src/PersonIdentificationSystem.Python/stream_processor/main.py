@@ -179,43 +179,53 @@ class StreamProcessor:
         frames_read = 0
         frames_rejected = 0
         frames_saved = 0
+        processing_task: asyncio.Task | None = None
+
+        async def process_detection_frame(frame_b64: str, captured_at: str) -> None:
+            """Run detection + dispatch off the hot live-feed path.
+
+            Keep only one in-flight detection task per stream. If detection is
+            slower than incoming frames, newer frames are dropped for detection
+            so MJPEG remains smooth.
+            """
+            nonlocal frames_rejected, frames_saved
+            try:
+                loop = asyncio.get_running_loop()
+                score = await loop.run_in_executor(None, detector.score, frame_b64)
+                if score is None:
+                    frames_rejected += 1
+                    if frames_rejected % 30 == 0:
+                        logger.info(
+                            "Stream %s heartbeat: %d frames read, %d rejected, %d saved",
+                            camera_location, frames_read, frames_rejected, frames_saved,
+                        )
+                    return
+
+                frames_saved += 1
+
+                if SAVE_DETECTED_FACES:
+                    saved_path = _save_face_snapshot(
+                        camera_location, score.face_only_b64, score.sharpness
+                    )
+                    if saved_path:
+                        logger.info(
+                            "Saved face snapshot: %s (sharpness=%.0f, area=%d)",
+                            saved_path, score.sharpness, score.largest_face_area,
+                        )
+
+                await self._dispatch_face(
+                    stream_id, score.face_only_b64, captured_at
+                )
+            except Exception as e:
+                logger.error(f"Frame processing error for stream {stream_id}: {e}")
 
         try:
             async for frame_b64, captured_at in extractor.extract_frames():
-                try:
-                    frames_read += 1
-                    # Local face gate: skip frames with no face / too small / too blurry.
-                    score = detector.score(frame_b64)
-                    if score is None:
-                        frames_rejected += 1
-                        if frames_rejected % 30 == 0:
-                            logger.info(
-                                "Stream %s heartbeat: %d frames read, %d rejected, %d saved",
-                                camera_location, frames_read, frames_rejected, frames_saved,
-                            )
-                        continue
-                    frames_saved += 1
-
-                    # Optionally persist a copy of the cropped face for manual
-                    # validation. Controlled by SAVE_DETECTED_FACES env var.
-                    if SAVE_DETECTED_FACES:
-                        saved_path = _save_face_snapshot(
-                            camera_location, score.face_only_b64, score.sharpness
-                        )
-                        if saved_path:
-                            logger.info(
-                                "Saved face snapshot: %s (sharpness=%.0f, area=%d)",
-                                saved_path, score.sharpness, score.largest_face_area,
-                            )
-
-                    # Send the CROPPED FACE to the recognition pipeline (not the
-                    # full frame). This is what the operator wants matched.
-                    await self._dispatch_face(
-                        stream_id, score.face_only_b64, captured_at
+                frames_read += 1
+                if processing_task is None or processing_task.done():
+                    processing_task = asyncio.create_task(
+                        process_detection_frame(frame_b64, captured_at)
                     )
-
-                except Exception as e:
-                    logger.error(f"Frame processing error for stream {stream_id}: {e}")
 
         except StreamConnectionError as e:
             logger.error(f"Stream {stream_id} connection failed: {e}")
@@ -224,6 +234,9 @@ class StreamProcessor:
         except Exception as e:
             logger.error(f"Error processing stream {stream_id}: {e}")
         finally:
+            if processing_task and not processing_task.done():
+                processing_task.cancel()
+                await asyncio.gather(processing_task, return_exceptions=True)
             extractor.release()
             logger.info(f"Stream {stream_id} processing stopped.")
 

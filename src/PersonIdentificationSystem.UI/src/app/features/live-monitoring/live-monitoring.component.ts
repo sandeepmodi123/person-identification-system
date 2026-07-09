@@ -17,8 +17,17 @@ import { SignalrService } from '../../core/services/signalr.service';
         <span class="live-badge">LIVE</span>
       </div>
 
+      <div class="stream-toolbar" *ngIf="activeStreams.length > 0">
+        <span>Showing {{ pageStart + 1 }}-{{ pageEnd }} of {{ activeStreams.length }} streams</span>
+        <div class="pager-actions">
+          <button type="button" (click)="prevPage()" [disabled]="currentPage === 1">Prev</button>
+          <span>Page {{ currentPage }} / {{ totalPages }}</span>
+          <button type="button" (click)="nextPage()" [disabled]="currentPage >= totalPages">Next</button>
+        </div>
+      </div>
+
       <div class="stream-grid" *ngIf="activeStreams.length > 0; else noStreams">
-        <div class="stream-card" *ngFor="let s of activeStreams">
+        <div class="stream-card" *ngFor="let s of visibleStreams">
           <div class="stream-header">
             <span class="camera-name">{{ s.cameraName }}</span>
             <span class="camera-location">{{ s.cameraLocation || 'Unknown' }}</span>
@@ -78,6 +87,16 @@ import { SignalrService } from '../../core/services/signalr.service';
       display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
       gap: 16px; margin-bottom: 24px;
     }
+    .stream-toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; color: #334155; font-size: 13px;
+    }
+    .pager-actions { display: flex; align-items: center; gap: 8px; }
+    .pager-actions button {
+      border: 1px solid #cbd5e1; background: white; border-radius: 6px;
+      padding: 4px 10px; cursor: pointer;
+    }
+    .pager-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
     .stream-card {
       background: white; border-radius: 12px; overflow: hidden;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
@@ -123,6 +142,8 @@ import { SignalrService } from '../../core/services/signalr.service';
 export class LiveMonitoringComponent implements OnInit, OnDestroy {
   activeStreams: RTSPStream[] = [];
   liveDetections: DetectionEvent[] = [];
+  currentPage = 1;
+  readonly streamsPerPage = 9;
   private sub?: Subscription;
 
   constructor(
@@ -133,6 +154,10 @@ export class LiveMonitoringComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.streamService.getStreams().subscribe((streams) => {
       this.activeStreams = streams.filter((s) => s.isActive);
+      const maxPage = Math.max(1, Math.ceil(this.activeStreams.length / this.streamsPerPage));
+      if (this.currentPage > maxPage) {
+        this.currentPage = maxPage;
+      }
     });
 
     this.sub = this.signalr.detection$.subscribe((event) => {
@@ -141,6 +166,34 @@ export class LiveMonitoringComponent implements OnInit, OnDestroy {
         this.liveDetections.pop();
       }
     });
+  }
+
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.activeStreams.length / this.streamsPerPage));
+  }
+
+  get pageStart(): number {
+    return (this.currentPage - 1) * this.streamsPerPage;
+  }
+
+  get pageEnd(): number {
+    return Math.min(this.pageStart + this.streamsPerPage, this.activeStreams.length);
+  }
+
+  get visibleStreams(): RTSPStream[] {
+    return this.activeStreams.slice(this.pageStart, this.pageEnd);
+  }
+
+  nextPage(): void {
+    if (this.currentPage < this.totalPages) {
+      this.currentPage += 1;
+    }
+  }
+
+  prevPage(): void {
+    if (this.currentPage > 1) {
+      this.currentPage -= 1;
+    }
   }
 
   getMjpegUrl(streamId: string): string {
