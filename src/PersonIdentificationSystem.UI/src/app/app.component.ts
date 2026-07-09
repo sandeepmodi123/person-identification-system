@@ -51,6 +51,20 @@ export class AppComponent implements OnInit, OnDestroy {
   title = 'Person Identification System';
   private sub?: Subscription;
 
+  private toGoogleMapsUrl(
+    location?: string,
+    latitude?: number,
+    longitude?: number
+  ): string | undefined {
+    if (latitude != null && longitude != null) {
+      return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+    }
+    if (!location || !location.trim()) {
+      return undefined;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+  }
+
   constructor(
     private signalr: SignalrService,
     private toast: ToastService
@@ -62,11 +76,18 @@ export class AppComponent implements OnInit, OnDestroy {
         event.riskLevel === 'Critical' || event.riskLevel === 'High'
           ? 'error'
           : 'warning';
+      const mapUrl = this.toGoogleMapsUrl(
+        event.cameraLocation,
+        event.cameraLatitude,
+        event.cameraLongitude
+      );
       this.toast.show(
         riskType,
         `Match: ${event.personName}`,
-        `${event.cameraName} | Confidence: ${(event.confidenceScore * 100).toFixed(1)}% | Risk: ${event.riskLevel}`,
-        10000
+        `${event.cameraName}${event.cameraLocation ? ` (${event.cameraLocation})` : ''} | Confidence: ${(event.confidenceScore * 100).toFixed(1)}% | Risk: ${event.riskLevel}`,
+        10000,
+        mapUrl ? 'Open in Google Maps' : undefined,
+        mapUrl
       );
     });
   }

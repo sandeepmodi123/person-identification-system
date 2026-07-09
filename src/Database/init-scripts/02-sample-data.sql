@@ -13,10 +13,10 @@ INSERT INTO persons (id, name, description, risk_level, is_active) VALUES
 ON CONFLICT DO NOTHING;
 
 -- Sample RTSP streams
-INSERT INTO rtsp_streams (id, camera_name, camera_location, rtsp_url, frame_interval_seconds, is_active, status) VALUES
-    ('b1b2c3d4-0001-0001-0001-000000000001', 'MG Road Junction', 'MG Road & Brigade Rd, Bangalore', 'rtsp://192.168.1.101:554/stream1', 5, TRUE, 'Unknown'),
-    ('b1b2c3d4-0002-0002-0002-000000000002', 'Airport Entry', 'Kempegowda Int Airport, T2', 'rtsp://192.168.1.102:554/stream1', 10, TRUE, 'Unknown'),
-    ('b1b2c3d4-0003-0003-0003-000000000003', 'Bus Terminal', 'Majestic Bus Station, Gate 3', 'rtsp://192.168.1.103:554/stream1', 5, FALSE, 'Unknown')
+INSERT INTO rtsp_streams (id, camera_name, camera_location, camera_latitude, camera_longitude, rtsp_url, frame_interval_seconds, is_active, status) VALUES
+    ('b1b2c3d4-0001-0001-0001-000000000001', 'MG Road Junction', 'MG Road & Brigade Rd, Bangalore', 12.975702, 77.609282, 'rtsp://192.168.1.101:554/stream1', 5, TRUE, 'Unknown'),
+    ('b1b2c3d4-0002-0002-0002-000000000002', 'Airport Entry', 'Kempegowda Int Airport, T2', 13.198634, 77.706592, 'rtsp://192.168.1.102:554/stream1', 10, TRUE, 'Unknown'),
+    ('b1b2c3d4-0003-0003-0003-000000000003', 'Bus Terminal', 'Majestic Bus Station, Gate 3', 12.977935, 77.571089, 'rtsp://192.168.1.103:554/stream1', 5, FALSE, 'Unknown')
 ON CONFLICT DO NOTHING;
 
 -- Sample notification settings (update the default row)

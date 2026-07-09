@@ -8,7 +8,12 @@ public static class EmailTemplateGenerator
         string? description,
         DateTime detectedAt,
         double confidenceScore,
-        string detectionId)
+    string detectionId,
+    string? cameraName,
+    string? cameraLocation,
+      decimal? cameraLatitude,
+      decimal? cameraLongitude,
+    string? mapUrl)
     {
         var riskColor = riskLevel switch
         {
@@ -32,6 +37,18 @@ public static class EmailTemplateGenerator
                   {(description is not null ? $"<p style=\"color:#666;\">{description}</p>" : "")}
                   <table style="width:100%;border-collapse:collapse;margin-top:16px;">
                     <tr>
+                      <td style="padding:8px;border-bottom:1px solid #eee;color:#888;width:40%;">Camera</td>
+                      <td style="padding:8px;border-bottom:1px solid #eee;">{(string.IsNullOrWhiteSpace(cameraName) ? "Unknown" : cameraName)}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px;border-bottom:1px solid #eee;color:#888;">Location</td>
+                      <td style="padding:8px;border-bottom:1px solid #eee;">{(string.IsNullOrWhiteSpace(cameraLocation) ? "Not configured" : cameraLocation)}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px;border-bottom:1px solid #eee;color:#888;">Coordinates</td>
+                      <td style="padding:8px;border-bottom:1px solid #eee;">{(cameraLatitude.HasValue && cameraLongitude.HasValue ? $"{cameraLatitude:F6}, {cameraLongitude:F6}" : "Not configured")}</td>
+                    </tr>
+                    <tr>
                       <td style="padding:8px;border-bottom:1px solid #eee;color:#888;width:40%;">Detected At</td>
                       <td style="padding:8px;border-bottom:1px solid #eee;">{detectedAt:yyyy-MM-dd HH:mm:ss} UTC</td>
                     </tr>
@@ -49,6 +66,7 @@ public static class EmailTemplateGenerator
                        style="background:{riskColor};color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;display:inline-block;">
                       View Detection Details
                     </a>
+                    {(string.IsNullOrWhiteSpace(mapUrl) ? "" : $"<a href=\"{mapUrl}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"margin-left:10px;background:#1565c0;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;display:inline-block;\">Open Camera Location</a>")}
                   </div>
                 </div>
                 <div style="background:#f5f5f5;padding:12px;text-align:center;font-size:12px;color:#999;">

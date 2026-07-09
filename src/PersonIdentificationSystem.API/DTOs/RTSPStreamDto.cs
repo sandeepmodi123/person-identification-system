@@ -4,6 +4,8 @@ public record RTSPStreamDto(
     Guid Id,
     string CameraName,
     string? CameraLocation,
+    decimal? CameraLatitude,
+    decimal? CameraLongitude,
     string RtspUrl,
     int FrameIntervalSeconds,
     bool IsActive,
@@ -14,6 +16,8 @@ public record RTSPStreamDto(
 public record CreateRTSPStreamRequest(
     string CameraName,
     string? CameraLocation,
+    decimal? CameraLatitude,
+    decimal? CameraLongitude,
     string RtspUrl,
     int FrameIntervalSeconds = 5,
     bool IsActive = true
@@ -22,6 +26,8 @@ public record CreateRTSPStreamRequest(
 public record UpdateRTSPStreamRequest(
     string? CameraName,
     string? CameraLocation,
+    decimal? CameraLatitude,
+    decimal? CameraLongitude,
     string? RtspUrl,
     int? FrameIntervalSeconds,
     bool? IsActive

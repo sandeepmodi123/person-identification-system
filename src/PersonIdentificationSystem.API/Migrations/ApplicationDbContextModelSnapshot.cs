@@ -319,6 +319,16 @@ namespace PersonIdentificationSystem.API.Migrations
                         .HasColumnType("text")
                         .HasColumnName("camera_location");
 
+                    b.Property<decimal?>("CameraLatitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("camera_latitude");
+
+                    b.Property<decimal?>("CameraLongitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("camera_longitude");
+
                     b.Property<string>("CameraName")
                         .IsRequired()
                         .HasMaxLength(255)

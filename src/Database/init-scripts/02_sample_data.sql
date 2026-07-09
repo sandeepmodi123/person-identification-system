@@ -11,8 +11,8 @@ INSERT INTO persons (id, name, description, risk_level, is_active) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- Sample RTSP Streams
-INSERT INTO rtsp_streams (id, camera_name, camera_location, rtsp_url, frame_interval_seconds, is_active, status) VALUES
-  ('e5f6a7b8-c9d0-1234-ef01-234567890124', 'Main Junction Cam 1', 'MG Road & Brigade Road Junction', 'rtsp://demo:demo@demo.camera1:554/stream', 5, TRUE, 'Unknown'),
-  ('f6a7b8c9-d0e1-2345-f012-345678901235', 'Traffic Signal East', 'East Avenue - Signal 3', 'rtsp://demo:demo@demo.camera2:554/stream', 10, TRUE, 'Unknown'),
-  ('a7b8c9d0-e1f2-3456-0123-456789012346', 'North Gate Camera', 'Highway 17 North Gate', 'rtsp://demo:demo@demo.camera3:554/stream', 5, FALSE, 'Unknown')
+INSERT INTO rtsp_streams (id, camera_name, camera_location, camera_latitude, camera_longitude, rtsp_url, frame_interval_seconds, is_active, status) VALUES
+  ('e5f6a7b8-c9d0-1234-ef01-234567890124', 'Main Junction Cam 1', 'MG Road & Brigade Road Junction', 12.975702, 77.609282, 'rtsp://demo:demo@demo.camera1:554/stream', 5, TRUE, 'Unknown'),
+  ('f6a7b8c9-d0e1-2345-f012-345678901235', 'Traffic Signal East', 'East Avenue - Signal 3', 12.971947, 77.641151, 'rtsp://demo:demo@demo.camera2:554/stream', 10, TRUE, 'Unknown'),
+  ('a7b8c9d0-e1f2-3456-0123-456789012346', 'North Gate Camera', 'Highway 17 North Gate', 13.035542, 77.597100, 'rtsp://demo:demo@demo.camera3:554/stream', 5, FALSE, 'Unknown')
 ON CONFLICT (id) DO NOTHING;

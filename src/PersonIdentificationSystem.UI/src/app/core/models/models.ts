@@ -24,6 +24,8 @@ export interface RTSPStream {
   id: string;
   cameraName: string;
   cameraLocation?: string;
+  cameraLatitude?: number;
+  cameraLongitude?: number;
   rtspUrl: string;
   frameIntervalSeconds: number;
   isActive: boolean;
@@ -35,6 +37,9 @@ export interface Detection {
   id: string;
   streamId: string;
   cameraName: string;
+  cameraLocation?: string;
+  cameraLatitude?: number;
+  cameraLongitude?: number;
   personId?: string;
   personName?: string;
   riskLevel?: string;
@@ -79,6 +84,9 @@ export interface DetectionEvent {
   detectionId: string;
   streamId: string;
   cameraName: string;
+  cameraLocation?: string;
+  cameraLatitude?: number;
+  cameraLongitude?: number;
   personId: string;
   personName: string;
   riskLevel: string;

@@ -1,6 +1,7 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using System.Web;
 using PersonIdentificationSystem.API.Infrastructure;
 using PersonIdentificationSystem.API.Models.Entities;
 using PersonIdentificationSystem.API.Repositories;
@@ -65,6 +66,22 @@ public class NotificationService : INotificationService
         var password = _config["Email:Password"];
 
         bool allSent = true;
+        var stream = await _context.RTSPStreams
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == detection.StreamId, ct);
+
+        string? cameraLocation = stream?.CameraLocation;
+        decimal? cameraLatitude = stream?.CameraLatitude;
+        decimal? cameraLongitude = stream?.CameraLongitude;
+        string? mapUrl = null;
+        if (cameraLatitude.HasValue && cameraLongitude.HasValue)
+        {
+            mapUrl = $"https://www.google.com/maps/search/?api=1&query={cameraLatitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},{cameraLongitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+        else if (!string.IsNullOrWhiteSpace(cameraLocation))
+        {
+            mapUrl = $"https://www.google.com/maps/search/?api=1&query={HttpUtility.UrlEncode(cameraLocation)}";
+        }
 
         foreach (var recipient in settings.RecipientEmails)
         {
@@ -93,7 +110,8 @@ public class NotificationService : INotificationService
                     Text = EmailTemplateGenerator.GenerateDetectionAlert(
                         person.Name, person.RiskLevel, person.Description,
                         detection.DetectionTimestamp, (double)detection.ConfidenceScore,
-                        detection.Id.ToString())
+                        detection.Id.ToString(), stream?.CameraName, cameraLocation,
+                        cameraLatitude, cameraLongitude, mapUrl)
                 };
 
                 using var client = new SmtpClient();

@@ -17,6 +17,14 @@ import { ToastService, ToastMessage } from '../services/toast.service';
       >
         <strong>{{ t.title }}</strong>
         <p>{{ t.message }}</p>
+        <button
+          *ngIf="t.actionLabel && t.actionUrl"
+          type="button"
+          class="toast-action"
+          (click)="openAction($event, t.actionUrl)"
+        >
+          {{ t.actionLabel }}
+        </button>
       </div>
     </div>
   `,
@@ -63,6 +71,19 @@ import { ToastService, ToastMessage } from '../services/toast.service';
         margin: 4px 0 0;
         font-size: 13px;
       }
+      .toast-action {
+        margin-top: 10px;
+        border: 0;
+        border-radius: 4px;
+        padding: 6px 10px;
+        background: rgba(0, 0, 0, 0.15);
+        color: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .toast-action:hover {
+        background: rgba(0, 0, 0, 0.25);
+      }
       @keyframes slideIn {
         from {
           transform: translateX(100%);
@@ -91,6 +112,14 @@ export class ToastContainerComponent implements OnInit, OnDestroy {
 
   dismiss(id: number): void {
     this.toasts = this.toasts.filter((t) => t.id !== id);
+  }
+
+  openAction(event: MouseEvent, url?: string): void {
+    event.stopPropagation();
+    if (!url) {
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   ngOnDestroy(): void {

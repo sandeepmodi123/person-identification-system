@@ -51,6 +51,8 @@ public class ApplicationDbContext : DbContext
             e.ToTable("rtsp_streams");
             e.HasKey(x => x.Id);
             e.Property(x => x.CameraName).IsRequired().HasMaxLength(255);
+            e.Property(x => x.CameraLatitude).HasPrecision(9, 6);
+            e.Property(x => x.CameraLongitude).HasPrecision(9, 6);
             e.Property(x => x.RtspUrl).IsRequired().HasMaxLength(1000);
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("Unknown");
         });

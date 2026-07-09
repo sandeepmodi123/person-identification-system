@@ -29,6 +29,7 @@ import { Detection } from '../../core/models/models';
             <tr>
               <th>Person</th>
               <th>Camera</th>
+              <th>Map</th>
               <th>Confidence</th>
               <th>Detected At</th>
               <th>Risk</th>
@@ -40,6 +41,10 @@ import { Detection } from '../../core/models/models';
             <tr *ngFor="let d of detections">
               <td>{{ d.personName ?? 'Unknown' }}</td>
               <td>{{ d.cameraName }}</td>
+              <td>
+                <a *ngIf="toGoogleMapsUrl(d) as mapUrl" [href]="mapUrl" target="_blank" rel="noopener noreferrer">Open Map</a>
+                <span *ngIf="!toGoogleMapsUrl(d)">—</span>
+              </td>
               <td>{{ (d.confidenceScore * 100).toFixed(1) }}%</td>
               <td>{{ d.detectionTimestamp | date:'medium' }}</td>
               <td>{{ d.riskLevel ?? '—' }}</td>
@@ -120,6 +125,14 @@ export class DetectionsComponent implements OnInit {
       next: () => this.loadDetections(),
       error: (err) => alert(`Failed to delete detection: ${err?.message ?? err}`),
     });
+  }
+
+  toGoogleMapsUrl(d: Detection): string | undefined {
+    if (d.cameraLatitude != null && d.cameraLongitude != null) {
+      return `https://www.google.com/maps/search/?api=1&query=${d.cameraLatitude},${d.cameraLongitude}`;
+    }
+
+    return undefined;
   }
 
   prevPage(): void { if (this.page > 1) { this.page--; this.loadDetections(); } }

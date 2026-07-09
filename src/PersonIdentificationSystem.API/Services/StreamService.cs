@@ -45,6 +45,8 @@ public class StreamService : IStreamService
         {
             CameraName = request.CameraName.Trim(),
             CameraLocation = request.CameraLocation?.Trim(),
+            CameraLatitude = request.CameraLatitude,
+            CameraLongitude = request.CameraLongitude,
             RtspUrl = request.RtspUrl.Trim(),
             FrameIntervalSeconds = request.FrameIntervalSeconds,
             IsActive = request.IsActive
@@ -61,6 +63,8 @@ public class StreamService : IStreamService
 
         if (request.CameraName is not null) stream.CameraName = request.CameraName.Trim();
         if (request.CameraLocation is not null) stream.CameraLocation = request.CameraLocation.Trim();
+        stream.CameraLatitude = request.CameraLatitude;
+        stream.CameraLongitude = request.CameraLongitude;
         if (request.RtspUrl is not null) stream.RtspUrl = request.RtspUrl.Trim();
         if (request.FrameIntervalSeconds.HasValue) stream.FrameIntervalSeconds = request.FrameIntervalSeconds.Value;
         if (request.IsActive.HasValue) stream.IsActive = request.IsActive.Value;
@@ -176,6 +180,6 @@ public class StreamService : IStreamService
     }
 
     private static RTSPStreamDto MapToDto(RTSPStream s) => new(
-        s.Id, s.CameraName, s.CameraLocation, s.RtspUrl,
+        s.Id, s.CameraName, s.CameraLocation, s.CameraLatitude, s.CameraLongitude, s.RtspUrl,
         s.FrameIntervalSeconds, s.IsActive, s.Status, s.LastChecked);
 }

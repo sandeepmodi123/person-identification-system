@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS rtsp_streams (
     id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     camera_name             VARCHAR(255)  NOT NULL,
     camera_location         TEXT,
+    camera_latitude         NUMERIC(9,6) CHECK (camera_latitude >= -90 AND camera_latitude <= 90),
+    camera_longitude        NUMERIC(9,6) CHECK (camera_longitude >= -180 AND camera_longitude <= 180),
     rtsp_url                VARCHAR(1000) NOT NULL,
     frame_interval_seconds  INT           NOT NULL DEFAULT 5,
     is_active               BOOLEAN       NOT NULL DEFAULT TRUE,
