@@ -5,10 +5,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.compreface_client import CompreFaceClient
-from services.dedup_service import DedupService
-from utils.config import settings
-from utils.logger import get_logger
+from face_recognition_service.services.compreface_client import CompreFaceClient
+from face_recognition_service.services.dedup_service import DedupService
+from face_recognition_service.utils.config import settings
+from face_recognition_service.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()

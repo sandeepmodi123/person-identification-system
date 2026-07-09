@@ -69,10 +69,16 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import httpx
 from dotenv import load_dotenv
 
-from frame_extractor import FrameExtractor
-from face_detector import FaceDetector
-from exceptions import StreamConnectionError
-from mjpeg_server import start_mjpeg_server
+try:
+    from .frame_extractor import FrameExtractor
+    from .face_detector import FaceDetector
+    from .exceptions import StreamConnectionError
+    from .mjpeg_server import start_mjpeg_server
+except ImportError:
+    from frame_extractor import FrameExtractor
+    from face_detector import FaceDetector
+    from exceptions import StreamConnectionError
+    from mjpeg_server import start_mjpeg_server
 
 # Load environment variables
 load_dotenv()

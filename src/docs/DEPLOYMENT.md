@@ -1,5 +1,7 @@
 # Deployment Guide
 
+> Note: this document still describes the legacy two-container Python deployment model. For the current merged runtime (face recognition + stream runtime in one service), use [PROJECT_RUN_AND_DATA_FLOW.md](../../PROJECT_RUN_AND_DATA_FLOW.md) as the source of truth.
+
 End-to-end steps to deploy the Person Identification System to Azure.
 
 ## Architecture

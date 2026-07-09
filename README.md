@@ -36,7 +36,7 @@ docker-compose ps
 | .NET API | http://localhost:5000 |
 | Swagger UI | http://localhost:5000/swagger |
 | Python Face Recognition | http://localhost:8000 |
-| RabbitMQ Management | http://localhost:15672 |
+| MJPEG Streams | http://localhost:8085/stream/{streamId}/mjpeg |
 
 ## 📋 System Overview
 
@@ -62,8 +62,8 @@ person-identification-system/
 │   ├── PersonIdentificationSystem.API/     # .NET Core 8 REST API
 │   ├── PersonIdentificationSystem.UI/      # Angular 17 Frontend
 │   └── PersonIdentificationSystem.Python/  # Python Services
-│       ├── face_recognition_service/       # FastAPI face recognition
-│       └── stream_processor/               # RTSP stream processor
+│       ├── face_recognition_service/       # FastAPI + merged runtime host
+│       └── stream_processor/               # Embedded RTSP/MJPEG modules
 ├── src/Database/                           # PostgreSQL schema & seeds
 ├── .github/workflows/                      # CI/CD pipelines
 ├── docker-compose.yml                      # Multi-service orchestration
@@ -91,20 +91,13 @@ npm install
 ng serve
 ```
 
-### Python Face Recognition Service
+### Merged Python Service
 
 ```bash
-cd src/PersonIdentificationSystem.Python/face_recognition_service
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-### Python Stream Processor
-
-```bash
-cd src/PersonIdentificationSystem.Python/stream_processor
-pip install -r requirements.txt
-python stream_manager.py
+cd src/PersonIdentificationSystem.Python
+pip install -r face_recognition_service/requirements.txt
+pip install -r stream_processor/requirements.txt
+uvicorn face_recognition_service.main:app --reload --port 8000
 ```
 
 ## 📖 Documentation

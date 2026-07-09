@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from utils.config import settings
-from utils.logger import get_logger
+from face_recognition_service.utils.config import settings
+from face_recognition_service.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

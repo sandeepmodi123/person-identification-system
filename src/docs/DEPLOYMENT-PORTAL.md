@@ -1,5 +1,7 @@
 # Deploy from the Azure Portal (no CLI)
 
+> Note: this guide reflects the legacy two-container Python deployment. The repository now uses a merged Python runtime; see [PROJECT_RUN_AND_DATA_FLOW.md](../../PROJECT_RUN_AND_DATA_FLOW.md) for current runtime wiring.
+
 Step-by-step instructions to deploy the two Python services **entirely from the Azure Portal**, no `az` CLI needed. Assumes the .NET API (`citycopapi`) and the Static Web App (`red-mud-05244a700`) are already running in Azure.
 
 Total time: ~30–40 min the first time.

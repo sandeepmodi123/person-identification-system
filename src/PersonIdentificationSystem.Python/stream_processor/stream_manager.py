@@ -11,11 +11,18 @@ from typing import Dict
 
 import httpx
 
-from config import StreamConfig
-from exceptions import StreamConnectionError
-from frame_extractor import FrameExtractor
-from face_detector import FaceDetector
-from logger import get_logger
+try:
+    from .config import StreamConfig
+    from .exceptions import StreamConnectionError
+    from .frame_extractor import FrameExtractor
+    from .face_detector import FaceDetector
+    from .logger import get_logger
+except ImportError:
+    from config import StreamConfig
+    from exceptions import StreamConnectionError
+    from frame_extractor import FrameExtractor
+    from face_detector import FaceDetector
+    from logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -32,13 +39,13 @@ class StreamManager:
     async def start(self) -> None:
         """Start stream manager: load streams from API and begin processing."""
         self._running = True
-        logger.info("Stream manager starting...")
+        logger.info("Stream manager starting (api_url=%s)", self.config.api_url)
 
         while self._running:
             try:
                 await self._sync_streams()
             except Exception as e:
-                logger.error("Error syncing streams: %s", e)
+                logger.error("Error syncing streams from %s: %s", self.config.api_url, e)
 
             await asyncio.sleep(30)  # Re-sync every 30 seconds
 
@@ -55,7 +62,12 @@ class StreamManager:
 
     async def _sync_streams(self) -> None:
         """Fetch active streams from API and start/stop tasks as needed."""
-        async with httpx.AsyncClient(base_url=self.config.api_url, timeout=10) as client:
+        async with httpx.AsyncClient(
+            base_url=self.config.api_url,
+            timeout=10,
+            follow_redirects=self.config.follow_redirects,
+            verify=self.config.verify_ssl,
+        ) as client:
             response = await client.get("/api/rtsp-streams")
             response.raise_for_status()
             streams = response.json()
@@ -125,7 +137,12 @@ class StreamManager:
     async def _dispatch_frame(self, stream_id: str, face_b64: str, captured_at: str) -> None:
         """Send a face crop to the .NET API for matching."""
         async with self._dispatch_semaphore:
-            async with httpx.AsyncClient(base_url=self.config.api_url, timeout=30) as client:
+            async with httpx.AsyncClient(
+                base_url=self.config.api_url,
+                timeout=30,
+                follow_redirects=self.config.follow_redirects,
+                verify=self.config.verify_ssl,
+            ) as client:
                 payload = {
                     "streamId": stream_id,
                     "frameBase64": face_b64,

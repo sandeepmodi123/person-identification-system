@@ -5,13 +5,17 @@ from typing import Dict, Optional
 
 from aiohttp import web
 
-from logger import get_logger
+try:
+    from .logger import get_logger
+except ImportError:
+    from logger import get_logger
 
 logger = get_logger(__name__)
 
 # Shared state: stream_id -> latest encoded JPEG bytes
 _latest_jpegs: Dict[str, bytes] = {}
 _locks: Dict[str, asyncio.Lock] = {}
+_runner: Optional[web.AppRunner] = None
 
 MJPEG_FPS = int(os.getenv("MJPEG_FPS", "20"))
 MJPEG_PORT = int(os.getenv("MJPEG_PORT", "8085"))
@@ -123,6 +127,12 @@ async def streams_list_handler(request: web.Request) -> web.Response:
 
 async def start_mjpeg_server() -> None:
     """Start the MJPEG HTTP server."""
+    global _runner
+
+    if _runner is not None:
+        logger.info("MJPEG server already running on port %d", MJPEG_PORT)
+        return
+
     app = web.Application()
     app.router.add_get("/stream/{stream_id}/mjpeg", mjpeg_handler)
     app.router.add_get("/streams", streams_list_handler)
@@ -131,4 +141,22 @@ async def start_mjpeg_server() -> None:
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", MJPEG_PORT)
     await site.start()
+    _runner = runner
     logger.info("MJPEG server listening on port %d (fps=%d)", MJPEG_PORT, MJPEG_FPS)
+
+
+async def stop_mjpeg_server() -> None:
+    """Stop the MJPEG HTTP server if running."""
+    global _runner
+
+    if _runner is None:
+        return
+
+    await _runner.cleanup()
+    _runner = None
+    logger.info("MJPEG server stopped")
+
+
+def is_mjpeg_server_running() -> bool:
+    """Return True if MJPEG server has been started and not yet stopped."""
+    return _runner is not None

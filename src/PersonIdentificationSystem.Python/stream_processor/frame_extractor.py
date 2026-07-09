@@ -6,9 +6,14 @@ import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Tuple
 
-from exceptions import StreamConnectionError
-from logger import get_logger
-import mjpeg_server
+try:
+    from .exceptions import StreamConnectionError
+    from .logger import get_logger
+    from . import mjpeg_server
+except ImportError:
+    from exceptions import StreamConnectionError
+    from logger import get_logger
+    import mjpeg_server
 
 logger = get_logger(__name__)
 

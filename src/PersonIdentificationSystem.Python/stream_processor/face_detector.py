@@ -12,7 +12,10 @@ import urllib.request
 from dataclasses import dataclass
 from typing import List, Optional
 
-from logger import get_logger
+try:
+    from .logger import get_logger
+except ImportError:
+    from logger import get_logger
 
 logger = get_logger(__name__)
 

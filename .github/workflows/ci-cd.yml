@@ -38,15 +38,15 @@ jobs:
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
 
-  # ── Python Face Recognition Build & Test ──────────────────────────────────
-  python-face-recognition:
-    name: Python Face Recognition Tests
+  # ── Merged Python Services Build & Test ──────────────────────────────────
+  python-services:
+    name: Python Services Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
     defaults:
       run:
-        working-directory: src/PersonIdentificationSystem.Python/face_recognition_service
+        working-directory: src/PersonIdentificationSystem.Python
 
     steps:
       - uses: actions/checkout@v4
@@ -56,48 +56,24 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
-          cache-dependency-path: src/PersonIdentificationSystem.Python/face_recognition_service/requirements.txt
+          cache-dependency-path: |
+            src/PersonIdentificationSystem.Python/face_recognition_service/requirements.txt
+            src/PersonIdentificationSystem.Python/stream_processor/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r face_recognition_service/requirements.txt
+          pip install -r stream_processor/requirements.txt
 
       - name: Lint with flake8
         run: |
           pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 face_recognition_service stream_processor --count --select=E9,F63,F7,F82 --show-source --statistics
 
       - name: Run tests
         run: |
           pip install pytest
-          pytest tests/ -v || echo "No tests found"
-
-  # ── Python Stream Processor Build & Test ──────────────────────────────────
-  python-stream-processor:
-    name: Python Stream Processor Tests
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: src/PersonIdentificationSystem.Python/stream_processor
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
-          cache-dependency-path: src/PersonIdentificationSystem.Python/stream_processor/requirements.txt
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Lint with flake8
-        run: |
-          pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          if [ -d face_recognition_service/tests ]; then pytest face_recognition_service/tests -v; else echo "No tests found"; fi
 
   # ── Angular Frontend Build ────────────────────────────────────────────────
   angular-build:
@@ -134,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    needs: [dotnet-build, python-face-recognition, python-stream-processor, angular-build]
+    needs: [dotnet-build, python-services, angular-build]
 
     steps:
       - uses: actions/checkout@v4

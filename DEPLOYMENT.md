@@ -5,7 +5,7 @@
 - Docker Engine 24+ and Docker Compose 2.20+
 - 8 GB RAM minimum (16 GB recommended)
 - 20 GB available disk space
-- Ports 4200, 5000, 5432, 6379, 5672, 15672, 8000, 8001 available
+- Ports 4200, 5000, 5432, 6379, 8000, 8085 available
 
 ---
 
@@ -32,7 +32,7 @@ FROM_EMAIL=alerts@yoursystem.com
 
 # Python Face Recognition
 FACE_RECOGNITION_MODEL=arcface   # arcface or facenet
-CONFIDENCE_THRESHOLD=0.85
+CONFIDENCE_THRESHOLD=0.40
 ```
 
 ### 1.2 Start Services
@@ -156,13 +156,15 @@ docker-compose logs -f
 # View specific service logs
 docker-compose logs -f api
 docker-compose logs -f face-recognition
-docker-compose logs -f stream-processor
 
 # API health endpoint
 curl http://localhost:5000/health
 
 # Python service health
 curl http://localhost:8000/health
+
+# MJPEG stream index
+curl http://localhost:8085/streams
 ```
 
 ---
@@ -185,19 +187,13 @@ cat backup_20240115.sql | docker-compose exec -T postgres psql -U personid_user 
 
 ## 6. Scaling
 
-### Scale Face Recognition Workers
+### Scale Merged Python Service
 
 ```bash
-docker-compose up -d --scale face-recognition=3
+docker-compose up -d --scale face-recognition=2
 ```
 
-### Scale Stream Processor
-
-```bash
-docker-compose up -d --scale stream-processor=2
-```
-
-Each stream-processor instance handles the streams assigned to it via environment variable `STREAM_IDS`.
+When scaling to multiple replicas, each replica runs recognition and stream runtime together.
 
 ---
 
