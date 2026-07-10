@@ -5,6 +5,7 @@ public class RTSPStream
     public Guid Id { get; set; } = Guid.NewGuid();
     public string CameraName { get; set; } = string.Empty;
     public string? CameraLocation { get; set; }
+    public string? CameraMobileNumber { get; set; }
     public decimal? CameraLatitude { get; set; }
     public decimal? CameraLongitude { get; set; }
     public string RtspUrl { get; set; } = string.Empty;

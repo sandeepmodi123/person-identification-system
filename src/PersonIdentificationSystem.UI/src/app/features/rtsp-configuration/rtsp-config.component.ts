@@ -30,6 +30,10 @@ import { RTSPStream } from '../../core/models/models';
           </div>
           <input [ngModel]="formData.cameraLocation" (ngModelChange)="onLocationChange($event)" placeholder="Physical location" />
         </div>
+        <div class="form-row">
+          <label>Mobile Number</label>
+          <input [(ngModel)]="formData.cameraMobileNumber" placeholder="e.g. +919876543210" />
+        </div>
         <div class="form-grid">
           <div class="form-row">
             <label>Latitude</label>
@@ -70,6 +74,7 @@ import { RTSPStream } from '../../core/models/models';
             <tr>
               <th>Camera</th>
               <th>Location</th>
+              <th>Mobile</th>
               <th>Coordinates</th>
               <th>Status</th>
               <th>Interval</th>
@@ -81,6 +86,7 @@ import { RTSPStream } from '../../core/models/models';
             <tr *ngFor="let s of streams">
               <td>{{ s.cameraName }}</td>
               <td>{{ s.cameraLocation ?? '—' }}</td>
+              <td>{{ s.cameraMobileNumber ?? '—' }}</td>
               <td>{{ formatCoordinates(s.cameraLatitude, s.cameraLongitude) }}</td>
               <td><span class="status-dot" [class]="'status-' + s.status.toLowerCase()">{{ statusEmoji(s.status) }} {{ s.status }}</span></td>
               <td>{{ s.frameIntervalSeconds }}s</td>
@@ -142,6 +148,7 @@ export class RtspConfigComponent implements OnInit {
   formData = {
     cameraName: '',
     cameraLocation: '',
+    cameraMobileNumber: '',
     cameraLatitude: null as number | null,
     cameraLongitude: null as number | null,
     rtspUrl: '',
@@ -172,6 +179,7 @@ export class RtspConfigComponent implements OnInit {
     this.formData = {
       cameraName: '',
       cameraLocation: '',
+      cameraMobileNumber: '',
       cameraLatitude: null,
       cameraLongitude: null,
       rtspUrl: '',
@@ -242,6 +250,7 @@ export class RtspConfigComponent implements OnInit {
     this.formData = {
       cameraName: s.cameraName,
       cameraLocation: s.cameraLocation ?? '',
+      cameraMobileNumber: s.cameraMobileNumber ?? '',
       cameraLatitude: s.cameraLatitude ?? null,
       cameraLongitude: s.cameraLongitude ?? null,
       rtspUrl: s.rtspUrl,
@@ -272,6 +281,7 @@ export class RtspConfigComponent implements OnInit {
     this.formData = {
       cameraName: '',
       cameraLocation: '',
+      cameraMobileNumber: '',
       cameraLatitude: null,
       cameraLongitude: null,
       rtspUrl: '',

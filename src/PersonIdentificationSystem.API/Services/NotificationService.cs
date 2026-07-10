@@ -1,6 +1,10 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Web;
 using PersonIdentificationSystem.API.Infrastructure;
 using PersonIdentificationSystem.API.Models.Entities;
@@ -18,6 +22,8 @@ public interface INotificationService
 
 public class NotificationService : INotificationService
 {
+    private static readonly Regex PhoneRegex = new(@"^\+?[1-9]\d{7,14}$", RegexOptions.Compiled);
+
     private readonly ApplicationDbContext _context;
     private readonly INotificationLogRepository _logRepo;
     private readonly IConfiguration _config;
@@ -66,6 +72,7 @@ public class NotificationService : INotificationService
         var password = _config["Email:Password"];
 
         bool allSent = true;
+        bool anySent = false;
         var stream = await _context.RTSPStreams
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == detection.StreamId, ct);
@@ -76,7 +83,7 @@ public class NotificationService : INotificationService
         string? mapUrl = null;
         if (cameraLatitude.HasValue && cameraLongitude.HasValue)
         {
-            mapUrl = $"https://www.google.com/maps/search/?api=1&query={cameraLatitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},{cameraLongitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            mapUrl = $"https://www.google.com/maps/search/?api=1&query={cameraLatitude.Value.ToString(CultureInfo.InvariantCulture)},{cameraLongitude.Value.ToString(CultureInfo.InvariantCulture)}";
         }
         else if (!string.IsNullOrWhiteSpace(cameraLocation))
         {
@@ -125,6 +132,7 @@ public class NotificationService : INotificationService
 
                 log.Status = "Sent";
                 log.MessageId = message.MessageId;
+                anySent = true;
                 _logger.LogInformation("Notification sent to {Recipient} for detection {DetectionId}", recipient, detection.Id);
             }
             catch (Exception ex)
@@ -138,7 +146,11 @@ public class NotificationService : INotificationService
             await _logRepo.AddAsync(log, ct);
         }
 
-        return allSent && settings.RecipientEmails.Length > 0;
+        var smsResult = await TrySendSmsAlertAsync(detection, person, stream, mapUrl, ct);
+        anySent = anySent || smsResult.Sent;
+        allSent = allSent && !smsResult.Failed;
+
+        return allSent && anySent;
     }
 
     public async Task<NotificationSettings?> GetSettingsAsync(CancellationToken ct = default)
@@ -151,5 +163,132 @@ public class NotificationService : INotificationService
         _context.NotificationSettings.Update(settings);
         await _context.SaveChangesAsync(ct);
         return settings;
+    }
+
+    private async Task<(bool Sent, bool Failed)> TrySendSmsAlertAsync(
+        Detection detection,
+        Person person,
+        RTSPStream? stream,
+        string? mapUrl,
+        CancellationToken ct)
+    {
+        if (!_config.GetValue("Sms:Enabled", true))
+        {
+            return (false, false);
+        }
+
+        var toNumberRaw = stream?.CameraMobileNumber;
+        if (string.IsNullOrWhiteSpace(toNumberRaw))
+        {
+            return (false, false);
+        }
+
+        var toNumber = toNumberRaw.Trim();
+        if (!PhoneRegex.IsMatch(toNumber))
+        {
+            _logger.LogWarning(
+                "SMS not sent for detection {DetectionId}: invalid mobile number format {MobileNumber}",
+                detection.Id,
+                toNumber);
+            return (false, true);
+        }
+
+        var accountSid = _config["Sms:Twilio:AccountSid"];
+        var authToken = _config["Sms:Twilio:AuthToken"];
+        var fromNumber = _config["Sms:Twilio:FromNumber"];
+        var messagingServiceSid = _config["Sms:Twilio:MessagingServiceSid"];
+
+        if (string.IsNullOrWhiteSpace(accountSid)
+            || string.IsNullOrWhiteSpace(authToken)
+            || (string.IsNullOrWhiteSpace(fromNumber) && string.IsNullOrWhiteSpace(messagingServiceSid)))
+        {
+            _logger.LogWarning(
+                "SMS not sent for detection {DetectionId}: Twilio config missing (Sms:Twilio:AccountSid/AuthToken and either FromNumber or MessagingServiceSid).",
+                detection.Id);
+            return (false, false);
+        }
+
+        var location = stream?.CameraLocation;
+        var camera = stream?.CameraName ?? "Unknown";
+        var messageBody = new StringBuilder()
+            .Append("ALERT: ")
+            .Append(person.Name)
+            .Append(" (")
+            .Append(person.RiskLevel)
+            .Append(") detected at ")
+            .Append(camera);
+
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            messageBody.Append(" - ").Append(location);
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapUrl))
+        {
+            messageBody.Append(". Map: ").Append(mapUrl);
+        }
+
+        var log = new NotificationLog
+        {
+            DetectionId = detection.Id,
+            RecipientEmail = $"sms:{toNumber}",
+            Status = "Pending"
+        };
+
+        try
+        {
+            var endpoint = $"https://api.twilio.com/2010-04-01/Accounts/{accountSid}/Messages.json";
+            using var httpClient = new HttpClient();
+            var auth = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{accountSid}:{authToken}"));
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", auth);
+
+            var payload = new Dictionary<string, string>
+            {
+                ["To"] = toNumber,
+                ["Body"] = messageBody.ToString()
+            };
+
+            if (!string.IsNullOrWhiteSpace(messagingServiceSid))
+            {
+                payload["MessagingServiceSid"] = messagingServiceSid;
+            }
+            else
+            {
+                payload["From"] = fromNumber!;
+            }
+
+            using var content = new FormUrlEncodedContent(payload);
+
+            using var response = await httpClient.PostAsync(endpoint, content, ct);
+            if (response.IsSuccessStatusCode)
+            {
+                log.Status = "Sent";
+                _logger.LogInformation(
+                    "SMS alert sent to {Recipient} for detection {DetectionId}",
+                    toNumber,
+                    detection.Id);
+                await _logRepo.AddAsync(log, ct);
+                return (true, false);
+            }
+
+            var errorText = await response.Content.ReadAsStringAsync(ct);
+            log.Status = "Failed";
+            log.ErrorMessage = $"SMS API error ({(int)response.StatusCode}): {errorText}";
+            await _logRepo.AddAsync(log, ct);
+            _logger.LogError(
+                "Failed to send SMS alert to {Recipient}. Status: {StatusCode}. Body: {Body}",
+                toNumber,
+                (int)response.StatusCode,
+                errorText);
+            return (false, true);
+        }
+        catch (Exception ex)
+        {
+            log.Status = "Failed";
+            log.ErrorMessage = ex.Message;
+            await _logRepo.AddAsync(log, ct);
+            _logger.LogError(ex, "Failed to send SMS alert to {Recipient}", toNumber);
+            return (false, true);
+        }
     }
 }

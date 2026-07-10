@@ -24,6 +24,7 @@ export interface RTSPStream {
   id: string;
   cameraName: string;
   cameraLocation?: string;
+  cameraMobileNumber?: string;
   cameraLatitude?: number;
   cameraLongitude?: number;
   rtspUrl: string;

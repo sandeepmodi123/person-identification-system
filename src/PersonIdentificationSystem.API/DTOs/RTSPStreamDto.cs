@@ -4,6 +4,7 @@ public record RTSPStreamDto(
     Guid Id,
     string CameraName,
     string? CameraLocation,
+    string? CameraMobileNumber,
     decimal? CameraLatitude,
     decimal? CameraLongitude,
     string RtspUrl,
@@ -16,6 +17,7 @@ public record RTSPStreamDto(
 public record CreateRTSPStreamRequest(
     string CameraName,
     string? CameraLocation,
+    string? CameraMobileNumber,
     decimal? CameraLatitude,
     decimal? CameraLongitude,
     string RtspUrl,
@@ -26,6 +28,7 @@ public record CreateRTSPStreamRequest(
 public record UpdateRTSPStreamRequest(
     string? CameraName,
     string? CameraLocation,
+    string? CameraMobileNumber,
     decimal? CameraLatitude,
     decimal? CameraLongitude,
     string? RtspUrl,

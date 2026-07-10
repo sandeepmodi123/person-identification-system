@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS rtsp_streams (
     id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     camera_name             VARCHAR(255) NOT NULL,
     camera_location         VARCHAR(500),
+    camera_mobile_number    VARCHAR(20),
     camera_latitude         DECIMAL(9,6) CHECK (camera_latitude >= -90 AND camera_latitude <= 90),
     camera_longitude        DECIMAL(9,6) CHECK (camera_longitude >= -180 AND camera_longitude <= 180),
     rtsp_url                VARCHAR(1000) NOT NULL,
